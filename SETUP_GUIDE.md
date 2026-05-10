@@ -447,10 +447,10 @@ sysbeat.example.com {
 # 1. Ensure build tools are installed
 sudo apt install build-essential python3
 
-# 2. Ensure pnpm-workspace.yaml allows builds for better-sqlite3
-#    The project includes a local pnpm-workspace.yaml with this setting.
-#    If you have a global ~/pnpm-workspace.yaml, check that it doesn't
-#    set better-sqlite3: false.
+# 2. server/package.json already declares "pnpm.onlyBuiltDependencies"
+#    to allow better-sqlite3 builds. If you have a global
+#    ~/pnpm-workspace.yaml, this setting overrides it.
+#    If the problem persists, check your global workspace config.
 
 # 3. Rebuild the native module
 cd server

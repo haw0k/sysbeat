@@ -447,10 +447,10 @@ sysbeat.example.com {
 # 1. Убедитесь, что установлены сборочные инструменты
 sudo apt install build-essential python3
 
-# 2. Убедитесь, что pnpm-workspace.yaml разрешает сборку better-sqlite3
-#    В проекте есть локальный pnpm-workspace.yaml с этой настройкой.
-#    Если есть глобальный ~/pnpm-workspace.yaml, проверьте что там нет
-#    better-sqlite3: false.
+# 2. server/package.json уже содержит "pnpm.onlyBuiltDependencies"
+#    для разрешения сборки better-sqlite3. Если у вас есть глобальный
+#    ~/pnpm-workspace.yaml, эта настройка переопределяет его.
+#    Если проблема сохраняется, проверьте глобальную конфигурацию workspace.
 
 # 3. Пересоберите нативный модуль
 cd server
