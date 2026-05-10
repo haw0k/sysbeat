@@ -113,12 +113,13 @@ for DIR in server collector dashboard; do
   log_info "  ${DIR}..."
   (
     cd "$DIR"
-    # --no-frozen-lockfile: project package.json may change between releases
     pnpm install --no-frozen-lockfile
-    # pnpm v10.12+ requires explicit build approval; package.json
-    # already declares onlyBuiltDependencies, but approve-builds
-    # covers any version mismatch
-    pnpm approve-builds better-sqlite3 esbuild 2>/dev/null || true
+    # pnpm v10.12+ ignores build scripts by default.
+    # approve-builds marks them as allowed, rebuild runs the actual build.
+    if [ "$DIR" = "server" ]; then
+      pnpm approve-builds better-sqlite3 esbuild 2>&1 || true
+      pnpm rebuild better-sqlite3 esbuild 2>&1 || true
+    fi
   )
 done
 log_ok "Dependencies installed"
