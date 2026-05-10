@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
 # sysbeat setup — automated installation and configuration
-# Usage: ./setup.sh [--prod] [--install-systemd] [--device-id <id>]
+# Usage: ./setup.sh [--prod] [--install-systemd] [--install-nginx] [--device-id <id>]
 #
 # Options:
-#   --prod             Production mode (builds all components, uses /opt/sysbeat paths)
-#   --install-systemd  Install and enable systemd services (requires root)
-#   --device-id <id>   Custom device ID for the collector (default: auto-detected)
+#   --prod             Production mode (builds all components, deploys to /opt/sysbeat)
+#   --install-systemd  Install and enable systemd services (requires root, implies --prod)
+#   --install-nginx    Install nginx and configure it to serve dashboard (requires root)
+#   --device-id <id>   Custom device ID for the collector (default: hostname)
 
 set -euo pipefail
 
@@ -15,17 +16,21 @@ cd "$SCRIPT_DIR"
 
 PROD=false
 INSTALL_SYSTEMD=false
+INSTALL_NGINX=false
 DEVICE_ID="${HOSTNAME:-linux-device-1}"
 
 # --- Parse args ---
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --prod) PROD=true; shift ;;
-    --install-systemd) INSTALL_SYSTEMD=true; shift ;;
+    --install-systemd) INSTALL_SYSTEMD=true; PROD=true; shift ;;
+    --install-nginx) INSTALL_NGINX=true; shift ;;
     --device-id) DEVICE_ID="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+INSTALL_DIR="/opt/sysbeat"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -38,6 +43,14 @@ log_info()  { echo -e "${CYAN}[setup]${NC} $1"; }
 log_ok()    { echo -e "${GREEN}[ ok ]${NC}  $1"; }
 log_warn()  { echo -e "${YELLOW}[warn]${NC} $1"; }
 log_error() { echo -e "${RED}[err ]${NC} $1"; }
+
+# --- Root guard ---
+if $INSTALL_SYSTEMD || $INSTALL_NGINX; then
+  if [ "$(id -u)" -ne 0 ]; then
+    log_error "--install-systemd and --install-nginx require root. Re-run with sudo."
+    exit 1
+  fi
+fi
 
 # --- Prerequisites ---
 log_info "Checking prerequisites..."
@@ -121,8 +134,6 @@ for DIR in server collector dashboard; do
   log_info "  ${DIR}..."
   (
     cd "$DIR"
-    # pnpm v10.12+ may exit non-zero when builds are ignored;
-    # don't let set -e kill the script before we approve and rebuild.
     set +e
     pnpm install --no-frozen-lockfile
     if [ "$DIR" = "server" ]; then
@@ -146,24 +157,56 @@ if $PROD; then
     (cd "$DIR" && pnpm run build)
   done
   log_ok "Build complete"
+
+  # --- Deploy to /opt/sysbeat ---
+  log_info "Deploying to ${INSTALL_DIR}..."
+
+  mkdir -p "${INSTALL_DIR}/server" "${INSTALL_DIR}/collector" "${INSTALL_DIR}/dashboard" "${INSTALL_DIR}/nginx"
+
+  # server: dist + package.json + .env
+  cp -r server/dist "${INSTALL_DIR}/server/"
+  cp server/package.json "${INSTALL_DIR}/server/"
+  cp server/.env "${INSTALL_DIR}/server/"
+
+  # collector: dist + .env
+  cp -r collector/dist "${INSTALL_DIR}/collector/"
+  cp collector/.env "${INSTALL_DIR}/collector/"
+
+  # dashboard: dist
+  cp -r dashboard/dist "${INSTALL_DIR}/dashboard/"
+
+  # nginx config
+  cp nginx/sysbeat.conf "${INSTALL_DIR}/nginx/"
+
+  log_ok "Deploy complete"
 else
   log_info "Development mode — skipping build (use --prod for production build)"
 fi
 
-# --- systemd ---
-if $INSTALL_SYSTEMD; then
-  if [ "$(id -u)" -ne 0 ]; then
-    log_error "--install-systemd requires root. Re-run with sudo."
-    exit 1
+# --- nginx ---
+if $INSTALL_NGINX; then
+  log_info "Installing and configuring nginx..."
+
+  if ! command -v nginx &>/dev/null; then
+    apt-get update -qq
+    apt-get install -y -qq nginx
   fi
 
-  INSTALL_DIR="/opt/sysbeat"
-  SVC_DIR="/etc/systemd/system"
+  ln -sf "${INSTALL_DIR}/nginx/sysbeat.conf" /etc/nginx/sites-enabled/sysbeat
+  rm -f /etc/nginx/sites-enabled/default
 
-  log_info "Copying project to ${INSTALL_DIR}..."
-  mkdir -p "$INSTALL_DIR"
-  cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
-  chown -R root:root "$INSTALL_DIR"
+  if nginx -t 2>&1; then
+    systemctl reload nginx 2>/dev/null || systemctl start nginx
+    log_ok "nginx configured and running"
+  else
+    log_error "nginx configuration test failed"
+    exit 1
+  fi
+fi
+
+# --- systemd ---
+if $INSTALL_SYSTEMD; then
+  SVC_DIR="/etc/systemd/system"
 
   log_info "Installing systemd services..."
 
@@ -209,11 +252,10 @@ SVCCOL
 
   systemctl daemon-reload
   systemctl enable sysbeat-server sysbeat-collector
-  systemctl start sysbeat-server sysbeat-collector
+  systemctl restart sysbeat-server sysbeat-collector
 
-  log_ok "systemd services installed and running"
+  log_ok "systemd services installed and restarted"
 
-  # Check status
   sleep 2
   systemctl status sysbeat-server --no-pager 2>/dev/null | head -5 || true
 fi
@@ -222,10 +264,22 @@ fi
 echo ""
 log_ok "Setup complete!"
 echo ""
-echo "  To start in development:"
-echo "    cd server   && pnpm run dev"
-echo "    cd collector && pnpm run dev"
-echo "    cd dashboard && pnpm run dev"
-echo ""
-echo "  Dashboard: http://localhost:5173"
-echo "  Health:    http://localhost:3000/health"
+
+if $PROD; then
+  echo "  Server:    ${INSTALL_DIR}/server"
+  echo "  Collector: ${INSTALL_DIR}/collector"
+  echo "  Dashboard: ${INSTALL_DIR}/dashboard/dist"
+  echo "  Nginx:     ${INSTALL_DIR}/nginx/sysbeat.conf"
+  echo ""
+  if $INSTALL_NGINX; then
+    echo "  Open http://$(hostname -I | awk '{print $1}')"
+  fi
+else
+  echo "  To start in development:"
+  echo "    cd server    && pnpm run dev"
+  echo "    cd collector && pnpm run dev"
+  echo "    cd dashboard && pnpm run dev"
+  echo ""
+  echo "  Dashboard: http://localhost:5173"
+  echo "  Health:    http://localhost:3000/health"
+fi
