@@ -13,14 +13,22 @@ sysbeat consists of three components that work together:
 | **Dashboard** | `dashboard/` | React SPA that visualizes live metrics in real-time |
 
 ```
-+------------+      HTTP POST      +------------+     WebSocket      +------------+
-| Collector  | ------------------> |   Server   | -----------------> |  Dashboard |
-| (Linux /proc|   "my metrics"     | (Fastify + |   "live updates!"  |  (Browser) |
-|  parser)   |                    |  SQLite)   |                    |            |
-+------------+                    +------------+                    +------------+
++-------------+      HTTP POST      +------------+     WebSocket      +------------+
+| Collector   | ------------------> |   Server   | -----------------> |  Dashboard |
+| (Linux /proc|   "my metrics"      | (Fastify + |   "live updates!"  |  (Browser) |
+|  parser)    |                     |  SQLite)   |                    |            |
++------------+                      +------------+                    +------------+
 ```
 
 ## Quick Start (Development)
+
+### Automated setup
+
+```bash
+./setup.sh
+```
+
+This generates a random `INGEST_TOKEN`, creates all `.env`/`.env.local` files, and installs dependencies. See below for manual setup or `./setup.sh --prod --install-systemd` for production.
 
 ### Prerequisites
 
@@ -55,7 +63,7 @@ pnpm run dev
 ```bash
 cd dashboard
 cp .env.example .env.local
-# Edit .env.local: set VITE_API_URL, VITE_WS_URL
+# Edit .env.local: set VITE_API_URL, VITE_WS_URL, VITE_INGEST_TOKEN
 pnpm install
 pnpm run dev
 ```

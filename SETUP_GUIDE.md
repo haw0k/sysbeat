@@ -28,6 +28,18 @@ git clone <repo-url> sysbeat
 cd sysbeat
 ```
 
+#### Automated setup
+
+```bash
+./setup.sh
+```
+
+This single command generates a random `INGEST_TOKEN`, creates all `.env` and `.env.local` files, and installs dependencies. Continue to step 5 to start the services.
+
+For production: `./setup.sh --prod` (also builds). With systemd: `sudo ./setup.sh --prod --install-systemd`.
+
+#### Manual setup
+
 Install dependencies for all three components:
 
 ```bash
@@ -53,7 +65,11 @@ CORS_ORIGIN=http://localhost:5173
 NODE_ENV=development
 ```
 
-**Required:** change `INGEST_TOKEN` to a random string.
+**Required:** change `INGEST_TOKEN` to a random string. Generate one with:
+
+```bash
+openssl rand -hex 32
+```
 
 Run:
 
@@ -99,6 +115,7 @@ Edit `.env.local`:
 ```
 VITE_API_URL=http://localhost:3000
 VITE_WS_URL=ws://localhost:3000
+VITE_INGEST_TOKEN=change-me-in-production   # same token as in server
 ```
 
 Run:
@@ -129,6 +146,7 @@ hostname -I | awk '{print $1}'
    ```
    VITE_API_URL=http://172.31.199.36:3000
    VITE_WS_URL=ws://172.31.199.36:3000
+   VITE_INGEST_TOKEN=change-me-in-production
    ```
 
 3. **Dashboard**: run with `--host` so Vite is accessible from outside WSL:
@@ -142,14 +160,16 @@ hostname -I | awk '{print $1}'
 ### Health checks
 
 ```bash
-# Check health endpoint
+TOKEN="change-me-in-production"
+
+# Check health endpoint (no auth required)
 curl http://localhost:3000/health
 
-# Check device list
-curl http://localhost:3000/devices
+# Check device list (requires auth)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices
 
-# Check device metrics
-curl "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
+# Check device metrics (requires auth)
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
 ```
 
 ---
@@ -371,6 +391,7 @@ sysbeat.example.com {
 |----------|----------|---------|-------------|
 | `VITE_API_URL` | **yes** | — | REST API base URL |
 | `VITE_WS_URL` | **yes** | — | WebSocket base URL |
+| `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (must match server `INGEST_TOKEN`) |
 
 ---
 
@@ -380,14 +401,15 @@ sysbeat.example.com {
 
 1. Check that the collector is running and logs show `status: 200`.
 2. Check `SERVER_URL` and `INGEST_TOKEN` in the collector — they must match the server.
-3. Check `curl http://localhost:3000/devices` — it should return a list.
+3. Check `curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices` — it should return a list.
 
 ### Dashboard cannot connect to WebSocket
 
 1. Check `VITE_WS_URL` — should be `ws://localhost:3000` (or `wss://` for HTTPS).
-2. Check CORS: the server must allow the dashboard origin (`CORS_ORIGIN=http://localhost:5173`).
-3. Check DevTools → Network → WS — is there an attempt to connect?
-4. If behind nginx: make sure `/stream` proxies WebSocket (`Upgrade`, `Connection: upgrade`).
+2. Check `VITE_INGEST_TOKEN` — must match the server's `INGEST_TOKEN`. The token is sent as `?token=` query parameter for WebSocket auth.
+3. Check CORS: the server must allow the dashboard origin (`CORS_ORIGIN=http://localhost:5173`).
+4. Check DevTools → Network → WS — look for the connection URL with token parameter.
+5. If behind nginx: make sure `/stream` proxies WebSocket (`Upgrade`, `Connection: upgrade`).
 
 ### CORS errors in WSL + Windows browser
 
@@ -398,6 +420,7 @@ sysbeat.example.com {
    - `CORS_ORIGIN=http://172.31.199.36:5173` (server `.env`)
    - `VITE_API_URL=http://172.31.199.36:3000` (dashboard `.env.local`)
    - `VITE_WS_URL=ws://172.31.199.36:3000` (dashboard `.env.local`)
+   - `VITE_INGEST_TOKEN=change-me-in-production` (dashboard `.env.local`)
 2. Run the dashboard with `--host 0.0.0.0` so it listens on all interfaces.
 3. In the Windows browser open `http://<WSL_IP>:5173/`.
 
@@ -410,6 +433,32 @@ sysbeat.example.com {
 
 - Make sure you are running on Linux (or WSL). `/proc` is only available on Linux.
 - Check read permissions on `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`.
+
+### better-sqlite3 native module not found
+
+**Symptoms:** `Error: Could not locate the bindings file. Tried: .../better_sqlite3.node`
+
+**Cause:** `better-sqlite3` is a native C++ module that must be compiled for your Node.js version. This happens when:
+- Switching Node.js versions (e.g., from 20 to 22).
+- A parent `pnpm-workspace.yaml` disables builds for `better-sqlite3`.
+
+**Fix:**
+```bash
+# 1. Ensure build tools are installed
+sudo apt install build-essential python3
+
+# 2. Ensure pnpm-workspace.yaml allows builds for better-sqlite3
+#    The project includes a local pnpm-workspace.yaml with this setting.
+#    If you have a global ~/pnpm-workspace.yaml, check that it doesn't
+#    set better-sqlite3: false.
+
+# 3. Rebuild the native module
+cd server
+pnpm rebuild better-sqlite3
+# If rebuild doesn't help, reinstall from scratch:
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
+```
 
 ### Dashboard build fails
 

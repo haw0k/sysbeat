@@ -28,6 +28,18 @@ git clone <repo-url> sysbeat
 cd sysbeat
 ```
 
+#### Автоматическая установка
+
+```bash
+./setup.sh
+```
+
+Одна команда генерирует случайный `INGEST_TOKEN`, создаёт все файлы `.env` и `.env.local`, и устанавливает зависимости. Дальше переходите к шагу 5 для запуска сервисов.
+
+Для production: `./setup.sh --prod` (ещё и собирает). С systemd: `sudo ./setup.sh --prod --install-systemd`.
+
+#### Ручная установка
+
 Установите зависимости для всех трёх частей:
 
 ```bash
@@ -53,7 +65,11 @@ CORS_ORIGIN=http://localhost:5173
 NODE_ENV=development
 ```
 
-**Обязательно** измените `INGEST_TOKEN` на случайную строку.
+**Обязательно** измените `INGEST_TOKEN` на случайную строку. Сгенерируйте командой:
+
+```bash
+openssl rand -hex 32
+```
 
 Запуск:
 
@@ -99,6 +115,7 @@ cp .env.example .env.local
 ```
 VITE_API_URL=http://localhost:3000
 VITE_WS_URL=ws://localhost:3000
+VITE_INGEST_TOKEN=change-me-in-production   # тот же токен, что в сервере
 ```
 
 Запуск:
@@ -129,6 +146,7 @@ hostname -I | awk '{print $1}'
    ```
    VITE_API_URL=http://172.31.199.36:3000
    VITE_WS_URL=ws://172.31.199.36:3000
+   VITE_INGEST_TOKEN=change-me-in-production
    ```
 
 3. **Dashboard**: запустите с `--host`, чтобы Vite был доступен извне WSL:
@@ -142,14 +160,16 @@ hostname -I | awk '{print $1}'
 ### Проверка работоспособности
 
 ```bash
-# Проверка health endpoint
+TOKEN="change-me-in-production"
+
+# Проверка health endpoint (без аутентификации)
 curl http://localhost:3000/health
 
-# Проверка списка устройств
-curl http://localhost:3000/devices
+# Проверка списка устройств (требуется аутентификация)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices
 
-# Проверка метрик устройства
-curl "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
+# Проверка метрик устройства (требуется аутентификация)
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
 ```
 
 ---
@@ -371,6 +391,7 @@ sysbeat.example.com {
 |----------|----------|---------|-------------|
 | `VITE_API_URL` | **yes** | — | REST API base URL |
 | `VITE_WS_URL` | **yes** | — | WebSocket base URL |
+| `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (должен совпадать с серверным `INGEST_TOKEN`) |
 
 ---
 
@@ -380,14 +401,15 @@ sysbeat.example.com {
 
 1. Проверьте, что collector запущен и логи показывают `status: 200`.
 2. Проверьте `SERVER_URL` и `INGEST_TOKEN` в collector — они должны совпадать с сервером.
-3. Проверьте `curl http://localhost:3000/devices` — должен вернуть список.
+3. Проверьте `curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices` — должен вернуть список.
 
 ### Dashboard не подключается к WebSocket
 
 1. Проверьте `VITE_WS_URL` — должен быть `ws://localhost:3000` (или `wss://` для HTTPS).
-2. Проверьте CORS: сервер должен разрешать origin dashboard (`CORS_ORIGIN=http://localhost:5173`).
-3. Проверьте DevTools → Network → WS — есть ли попытка соединения?
-4. Если за nginx: убедитесь, что `/stream` проксирует WebSocket (`Upgrade`, `Connection: upgrade`).
+2. Проверьте `VITE_INGEST_TOKEN` — должен совпадать с `INGEST_TOKEN` сервера. Токен передаётся как query-параметр `?token=...` для WebSocket-аутентификации.
+3. Проверьте CORS: сервер должен разрешать origin dashboard (`CORS_ORIGIN=http://localhost:5173`).
+4. Проверьте DevTools → Network → WS — найдите URL соединения с параметром token.
+5. Если за nginx: убедитесь, что `/stream` проксирует WebSocket (`Upgrade`, `Connection: upgrade`).
 
 ### CORS ошибки в WSL + Windows браузер
 
@@ -398,6 +420,7 @@ sysbeat.example.com {
    - `CORS_ORIGIN=http://172.31.199.36:5173` (server `.env`)
    - `VITE_API_URL=http://172.31.199.36:3000` (dashboard `.env.local`)
    - `VITE_WS_URL=ws://172.31.199.36:3000` (dashboard `.env.local`)
+   - `VITE_INGEST_TOKEN=change-me-in-production` (dashboard `.env.local`)
 2. Запускайте dashboard с `--host 0.0.0.0`, чтобы он слушал не только `127.0.0.1`.
 3. В Windows-браузере открывайте `http://<WSL_IP>:5173/`.
 
@@ -410,6 +433,32 @@ sysbeat.example.com {
 
 - Убедитесь, что запускаете на Linux (или WSL). `/proc` доступен только на Linux.
 - Проверьте права на чтение `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`.
+
+### Нативный модуль better-sqlite3 не найден
+
+**Симптомы:** `Error: Could not locate the bindings file. Tried: .../better_sqlite3.node`
+
+**Причина:** `better-sqlite3` — нативный C++ модуль, который должен быть скомпилирован под вашу версию Node.js. Это происходит при:
+- Смене версии Node.js (например, с 20 на 22).
+- Родительский `pnpm-workspace.yaml` отключает сборку `better-sqlite3`.
+
+**Исправление:**
+```bash
+# 1. Убедитесь, что установлены сборочные инструменты
+sudo apt install build-essential python3
+
+# 2. Убедитесь, что pnpm-workspace.yaml разрешает сборку better-sqlite3
+#    В проекте есть локальный pnpm-workspace.yaml с этой настройкой.
+#    Если есть глобальный ~/pnpm-workspace.yaml, проверьте что там нет
+#    better-sqlite3: false.
+
+# 3. Пересоберите нативный модуль
+cd server
+pnpm rebuild better-sqlite3
+# Если rebuild не помог, переустановите с нуля:
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
+```
 
 ### Сборка dashboard падает
 
