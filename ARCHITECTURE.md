@@ -31,9 +31,10 @@ System architecture: components, data flows, storage, APIs, and communication pr
 ### Server
 
 - Fastify HTTP server with WebSocket (`@fastify/websocket`)
-- SQLite (`better-sqlite3`, WAL mode) for metric storage
+- SQLite (`better-sqlite3`, WAL mode, incremental_vacuum) for metric storage
 - REST API: ingest, health, devices, metrics query
-- WebSocket broadcast: sends updates to all connected dashboards
+- WebSocket broadcast: sends updates to all connected dashboards (auth required)
+- Dual-token auth: `INGEST_TOKEN` for collectors (write), `DASHBOARD_TOKEN` for dashboard (read)
 - Background jobs: retention (7 days), hourly precompute, heartbeat monitor
 
 ### Dashboard
@@ -75,7 +76,8 @@ Collector (index.ts)
 ### 2. Server → Dashboard
 
 ```
-Dashboard opens ws://server/stream?deviceId=xxx
+Dashboard opens ws://server/stream?deviceId=xxx&token=yyy
+  │  (token from VITE_INGEST_TOKEN, set to DASHBOARD_TOKEN in production)
   │
   └─> Server sends init burst (last 100 raw metrics from DB)
        │
@@ -195,6 +197,8 @@ Accepts metrics from the collector. Requires `Authorization: Bearer <INGEST_TOKE
 
 ### `GET /devices`
 
+Requires `Authorization: Bearer <INGEST_TOKEN or DASHBOARD_TOKEN>`.
+
 ```json
 [
   { "deviceId": "raspberry-pi-4", "lastSeen": 1715251200000, "isOnline": true }
@@ -203,10 +207,13 @@ Accepts metrics from the collector. Requires `Authorization: Bearer <INGEST_TOKE
 
 ### `GET /api/metrics/:deviceId`
 
+Requires `Authorization: Bearer <INGEST_TOKEN or DASHBOARD_TOKEN>`.
+
 **Query params:**
 - `from` — timestamp ms (default: 0)
 - `to` — timestamp ms (default: now)
 - `resolution` — `raw` | `hourly` | `daily` (default: `raw`)
+- `limit` — max rows for raw resolution (default: 10000)
 
 **Response (raw):**
 ```json
@@ -226,8 +233,10 @@ Accepts metrics from the collector. Requires `Authorization: Bearer <INGEST_TOKE
 ### Connection
 
 ```
-ws://host:port/stream?deviceId=<deviceId>
+ws://host:port/stream?deviceId=<deviceId>&token=<DASHBOARD_TOKEN>
 ```
+
+WebSocket connections require authentication via query parameter `?token=` or `Authorization: Bearer` header. The server uses `preHandler: authenticate` which accepts both `INGEST_TOKEN` and `DASHBOARD_TOKEN`.
 
 ### Server → Client messages
 
@@ -257,9 +266,9 @@ The server broadcasts messages to **all** connected clients. Each dashboard filt
 
 | Job | File | Period | What it does |
 |-----|------|--------|--------------|
-| Retention | `store/retention.ts` | Every hour | Deletes metrics older than 7 days, orphaned hourly_stats, VACUUM |
+| Retention | `store/retention.ts` | Every hour | Deletes metrics older than 7 days, orphaned hourly_stats, incremental_vacuum if >1000 rows deleted |
 | Precompute | `store/aggregation.ts` | Every 10 minutes | Recalculates `hourly_stats` for the last hour |
-| Heartbeat | `websocket/stream.ts` | Every 5 seconds | Checks `mapLastSeen`, sends `device-offline` if silent >30s |
+| Heartbeat | `websocket/stream.ts` | Every 5 seconds | Checks `setOnlineDevices` against `mapLastSeen`, sends `device-offline` if silent >30s |
 
 ---
 
@@ -275,11 +284,11 @@ The server broadcasts messages to **all** connected clients. Each dashboard filt
 
 ## Security
 
-- **Bearer token** on `POST /ingest` — single authentication point
+- **Dual-token auth** — `INGEST_TOKEN` for collector writes (`POST /ingest`), `DASHBOARD_TOKEN` for dashboard reads (`GET /devices`, `/api/metrics`, WS `/stream`). Dashboard token is not privileged for writes.
 - **Rate limiting** — 100 req/min per deviceId, in-memory
 - **CORS** — restricted to dashboard origin (`CORS_ORIGIN` env)
 - **Input validation** — Zod on request body and query params
-- **No auth on WebSocket** — filtering by `deviceId` happens on the client (server broadcasts to all)
+- **WebSocket auth** — `preHandler: authenticate` on `/stream`, token passed as `?token=` query parameter. Unauthorized connections receive HTTP 401 before upgrade.
 
 ---
 
@@ -290,12 +299,15 @@ src/
 ├── server.ts              # Entry point: Fastify init, route registration, jobs
 ├── config.ts              # Zod env validation, objConfig
 ├── routes/
+│   ├── auth.ts            # Dual-token auth: authenticate, authenticateIngest
 │   ├── ingest.ts          # POST /ingest
 │   ├── health.ts          # GET /health
 │   ├── devices.ts         # GET /devices
 │   └── metrics.ts         # GET /api/metrics/:deviceId
 ├── websocket/
 │   └── stream.ts          # WS /stream, broadcast, heartbeat
+├── types/
+│   └── index.ts           # Shared types and interfaces
 └── store/
     ├── db.ts              # Singleton DB connection, migrations
     ├── metrics-store.ts   # INSERT, SELECT raw metrics

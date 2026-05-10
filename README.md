@@ -28,20 +28,22 @@ sysbeat consists of three components that work together:
 ./setup.sh
 ```
 
-This generates a random `INGEST_TOKEN`, creates all `.env`/`.env.local` files, and installs dependencies. See below for manual setup or `./setup.sh --prod --install-systemd` for production.
+This generates random `INGEST_TOKEN` and `DASHBOARD_TOKEN`, creates all `.env`/`.env.local` files, and installs dependencies.
+
+For production: `sudo ./setup.sh --prod --install-systemd --install-nginx`.
 
 ### Prerequisites
 
 - Node.js >= 20
 - pnpm >= 9
-- Linux host (or WSL) for running the collector
+- Linux host for running the collector
 
 ### 1. Server
 
 ```bash
 cd server
 cp .env.example .env
-# Edit .env: set INGEST_TOKEN
+# Edit .env: set INGEST_TOKEN and DASHBOARD_TOKEN
 pnpm install
 pnpm run dev
 ```
@@ -70,8 +72,6 @@ pnpm run dev
 
 Dashboard opens at `http://localhost:5173`.
 
-> **WSL + Windows browser**: Use the WSL IP instead of `localhost` in all configs. See [SETUP_GUIDE.md](SETUP_GUIDE.md) for details.
-
 ## Project Structure
 
 ```
@@ -80,7 +80,7 @@ sysbeat/
 │   ├── src/
 │   │   ├── server.ts           # Entry point
 │   │   ├── config.ts           # Environment validation
-│   │   ├── routes/             # HTTP routes (ingest, health, devices, metrics)
+│   │   ├── routes/             # HTTP routes (auth, ingest, health, devices, metrics)
 │   │   ├── websocket/          # WebSocket streaming
 │   │   ├── store/              # SQLite data layer
 │   │   └── types/
@@ -96,11 +96,15 @@ sysbeat/
 ├── dashboard/
 │   ├── src/
 │   │   ├── App.tsx
+│   │   ├── config.ts           # Environment validation
 │   │   ├── stores/dashboard.ts # Zustand store
 │   │   ├── hooks/              # useWebSocket, useMetrics
 │   │   ├── components/         # Charts, cards, tables
-│   │   └── lib/                # API helpers, chart config
+│   │   └── lib/api.ts          # API helpers
 │   └── .env.example
+├── nginx/
+│   └── sysbeat.conf            # nginx reverse proxy config
+├── setup.sh                    # Automated setup script
 ├── README.md                   # This file
 ├── SETUP_GUIDE.md              # Detailed deployment guide
 └── ARCHITECTURE.md             # System architecture & data flow

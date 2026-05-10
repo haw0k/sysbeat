@@ -60,6 +60,7 @@ cp .env.example .env
 PORT=3000
 DB_PATH=./data/sysbeat.db
 INGEST_TOKEN=change-me-in-production
+DASHBOARD_TOKEN=change-me-in-production
 CORS_ORIGIN=http://localhost:5173
 NODE_ENV=development
 ```
@@ -128,16 +129,23 @@ pnpm run dev
 ### Проверка работоспособности
 
 ```bash
-TOKEN="change-me-in-production"
+INGEST_TOKEN="change-me-in-production"
+DASHBOARD_TOKEN="change-me-in-production"
 
 # Проверка health endpoint (без аутентификации)
 curl http://localhost:3000/health
 
-# Проверка списка устройств (требуется аутентификация)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices
+# Отправка метрики (требует INGEST_TOKEN)
+curl -X POST -H "Authorization: Bearer $INGEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"test","timestamp":'$(date +%s%3N)',"cpu":{"usage":10,"user":5,"system":3,"idle":82},"memory":{"total":8192,"used":4096,"free":4096,"percent":50},"load":[0.5,0.4,0.3]}' \
+  http://localhost:3000/ingest
 
-# Проверка метрик устройства (требуется аутентификация)
-curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
+# Проверка списка устройств (требует INGEST_TOKEN или DASHBOARD_TOKEN)
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://localhost:3000/devices
+
+# Проверка метрик устройства (требует INGEST_TOKEN или DASHBOARD_TOKEN)
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
 ```
 
 ---
@@ -213,7 +221,8 @@ cd ../dashboard && pnpm run build
 |----------|----------|---------|-------------|
 | `PORT` | — | `3000` | HTTP server port |
 | `DB_PATH` | — | `./data/sysbeat.db` | SQLite file path |
-| `INGEST_TOKEN` | **yes** | — | Bearer token for POST /ingest |
+| `INGEST_TOKEN` | **yes** | — | Bearer token для записи collector (POST /ingest) |
+| `DASHBOARD_TOKEN` | **yes** | — | Bearer token для чтения dashboard (GET endpoints, WS) |
 | `CORS_ORIGIN` | — | `*` | Allowed CORS origin |
 | `NODE_ENV` | — | `development` | Environment |
 
@@ -232,7 +241,7 @@ cd ../dashboard && pnpm run build
 |----------|----------|---------|-------------|
 | `VITE_API_URL` | — | `""` | REST API base URL (пусто = same-origin, для режима nginx proxy) |
 | `VITE_WS_URL` | — | `""` | WebSocket base URL (пусто = same-origin) |
-| `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (должен совпадать с серверным `INGEST_TOKEN`) |
+| `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (равен серверному `DASHBOARD_TOKEN`) |
 
 ---
 
@@ -241,16 +250,16 @@ cd ../dashboard && pnpm run build
 ### "No devices connected" в dashboard
 
 1. Проверьте, что collector запущен и логи показывают `status: 200`.
-2. Проверьте `SERVER_URL` и `INGEST_TOKEN` в collector — они должны совпадать с сервером.
-3. Проверьте `curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices` — должен вернуть список.
+2. Проверьте `SERVER_URL` и `INGEST_TOKEN` в collector — они должны совпадать с серверным `INGEST_TOKEN`.
+3. Проверьте `curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://localhost:3000/devices` — должен вернуть список.
+4. Убедитесь, что dashboard использует `DASHBOARD_TOKEN` (не `INGEST_TOKEN`) в `VITE_INGEST_TOKEN`.
 
 ### Dashboard не подключается к WebSocket
 
 1. Проверьте `VITE_WS_URL` — в development должен быть `ws://localhost:3000`, в production пустой (same-origin, если за nginx).
-2. Проверьте `VITE_INGEST_TOKEN` — должен совпадать с `INGEST_TOKEN` сервера. Токен передаётся как query-параметр `?token=...` для WebSocket-аутентификации.
-3. Проверьте CORS: сервер должен разрешать origin dashboard (`CORS_ORIGIN=http://localhost:5173`).
-4. Проверьте DevTools → Network → WS — найдите URL соединения с параметром token.
-5. Если за nginx: убедитесь, что `/stream` проксирует WebSocket (`Upgrade`, `Connection: upgrade`).
+2. Проверьте `VITE_INGEST_TOKEN` — должен быть равен серверному `DASHBOARD_TOKEN` (не `INGEST_TOKEN`). Токен передаётся как query-параметр `?token=...` для WebSocket-аутентификации.
+3. Проверьте DevTools → Network → WS — URL соединения должен содержать `?token=...`. Без него сервер возвращает 401.
+4. Если за nginx: убедитесь, что `/stream` проксирует WebSocket (`Upgrade`, `Connection: upgrade`).
 
 ### "Database is locked" или "SQLITE_BUSY"
 

@@ -88,11 +88,12 @@ All WebSocket functions are in one file:
 src/websocket/stream.ts
 ```
 
-There are three important concepts:
+There are four important concepts:
 
 | Variable | Type | Purpose |
 |----------|------|---------|
 | `setClients` | `Set<WebSocket>` | All currently connected clients |
+| `setOnlineDevices` | `Set<string>` | Device IDs currently considered online |
 | `mapLastSeen` | `Map<string, number>` | When each device last sent metrics |
 | `WS_OPEN` | constant `1` | "Connection is open" state |
 
@@ -111,21 +112,23 @@ await registerStreamRoute(objApp);
 
 `@fastify/websocket` is a plugin for Fastify. It adds the ability to handle WebSocket connections just like HTTP routes.
 
-**File:** `src/websocket/stream.ts:88-132`
+**File:** `src/websocket/stream.ts`
 
 ```typescript
+import { authenticate } from '../routes/auth.js';
+
 export async function registerStreamRoute(objApp: FastifyInstance): Promise<void> {
-  objApp.get('/stream', { websocket: true }, (objSocket, objReq) => {
+  objApp.get('/stream', { websocket: true, preHandler: authenticate }, (objSocket, objReq) => {
     // ...
   });
 }
 ```
 
-The key thing here: Fastify sees the flag `{ websocket: true }` and understands that this route is not for HTTP, but for WebSocket. Instead of a regular HTTP response it "upgrades" the connection to WebSocket.
+The key things here: Fastify sees the flag `{ websocket: true }` and understands that this route is not for HTTP, but for WebSocket. The `preHandler: authenticate` runs before the WebSocket upgrade — if the token is invalid, the client receives HTTP 401 and the upgrade is blocked.
 
 ### 4.2. What happens when a client connects
 
-When the dashboard opens `ws://localhost:3000/stream?deviceId=test-pi`, the server calls the handler:
+When the dashboard opens `ws://localhost:3000/stream?deviceId=test-pi&token=xxx`, the server calls the handler:
 
 ```typescript
 objApp.get('/stream', { websocket: true }, (objSocket, objReq) => {
@@ -249,9 +252,10 @@ const bWasKnown = markDeviceSeen(objMetric.deviceId);
 ```typescript
 // stream.ts
 export function markDeviceSeen(strDeviceId: string): boolean {
-  const bWasKnown = mapLastSeen.has(strDeviceId);
-  mapLastSeen.set(strDeviceId, Date.now());  // recorded current time
-  return bWasKnown;  // returned whether the device was already known
+  const bWasKnown = setOnlineDevices.has(strDeviceId);
+  mapLastSeen.set(strDeviceId, Date.now());
+  setOnlineDevices.add(strDeviceId);
+  return bWasKnown;
 }
 ```
 
@@ -265,15 +269,20 @@ Every 5 seconds a check is run:
 export function startHeartbeatMonitor(): NodeJS.Timeout {
   const fnCheck = (): void => {
     const nNow = Date.now();
-    for (const [strDeviceId, nLastSeen] of mapLastSeen.entries()) {
-      if (nNow - nLastSeen >= objConfig.nDeviceOfflineThresholdMs) {  // 30 sec
-        broadcastDeviceOffline(strDeviceId);  // to all: "device is gone"
-        mapLastSeen.delete(strDeviceId);       // removed from the list
+    const arrOffline: string[] = [];
+    for (const strDeviceId of setOnlineDevices) {
+      const nLastSeen = mapLastSeen.get(strDeviceId) ?? 0;
+      if (nNow - nLastSeen >= objConfig.nDeviceOfflineThresholdMs) {
+        arrOffline.push(strDeviceId);
       }
+    }
+    for (const strDeviceId of arrOffline) {
+      setOnlineDevices.delete(strDeviceId);
+      broadcastDeviceOffline(strDeviceId);
     }
   };
 
-  return setInterval(fnCheck, objConfig.nHeartbeatCheckMs);  // every 5 sec
+  return setInterval(fnCheck, objConfig.nHeartbeatCheckMs);
 }
 ```
 
@@ -328,11 +337,11 @@ If this is not done, `setClients` will grow infinitely and the server will run o
 
 ## 5. What it looks like on the client side (JavaScript in the browser)
 
-Although the client code is not in this repository, it is important to understand how it works:
+The client code lives in `dashboard/src/hooks/useWebSocket.ts` in this repository:
 
 ```javascript
-// Connect
-const socket = new WebSocket('ws://localhost:3000/stream?deviceId=test-pi');
+// Connect (with auth token as query parameter)
+const socket = new WebSocket('ws://localhost:3000/stream?deviceId=test-pi&token=xxx');
 
 // Connection established
 socket.addEventListener('open', () => {
@@ -434,7 +443,7 @@ curl -X POST -H "Authorization: Bearer change-me-in-production" \
 # Terminal 3: connect as a client
 node -e "
 const ws = require('ws');
-const c = new ws('ws://localhost:3000/stream?deviceId=test');
+const c = new ws('ws://localhost:3000/stream?deviceId=test&token=change-me-in-production');
 c.on('open', () => console.log('Connected'));
 c.on('message', d => console.log(JSON.parse(d.toString())));
 "

@@ -15,7 +15,7 @@ Real-time Linux device monitoring server for the sysbeat dashboard.
 
 ```bash
 cp .env.example .env
-# Edit .env and set INGEST_TOKEN
+# Edit .env: set INGEST_TOKEN and DASHBOARD_TOKEN
 pnpm install
 ```
 
@@ -32,13 +32,14 @@ pnpm start
 
 ## Environment Variables
 
-| Variable      | Default                 | Description                              |
-|---------------|-------------------------|------------------------------------------|
-| PORT          | 3000                    | HTTP server port                         |
-| DB_PATH       | ./data/sysbeat.db       | SQLite database file path                |
-| INGEST_TOKEN  | —                       | Bearer token required for POST /ingest   |
-| CORS_ORIGIN   | *                       | Allowed CORS origin for frontend         |
-| NODE_ENV      | development             | Runtime environment                      |
+| Variable        | Default                 | Description                                |
+|-----------------|-------------------------|--------------------------------------------|
+| PORT            | 3000                    | HTTP server port                           |
+| DB_PATH         | ./data/sysbeat.db       | SQLite database file path                  |
+| INGEST_TOKEN    | —                       | Bearer token for collector writes (POST /ingest) |
+| DASHBOARD_TOKEN | —                       | Bearer token for dashboard reads (GET endpoints, WS) |
+| CORS_ORIGIN     | *                       | Allowed CORS origin for frontend           |
+| NODE_ENV        | development             | Runtime environment                        |
 
 ## API
 
@@ -76,7 +77,7 @@ Returns server health and database stats.
 
 ### `GET /devices`
 
-Lists all known devices with online/offline status (30-second threshold).
+Lists all known devices with online/offline status (30-second threshold). Requires `Authorization: Bearer <INGEST_TOKEN or DASHBOARD_TOKEN>`.
 
 ```json
 [
@@ -86,17 +87,20 @@ Lists all known devices with online/offline status (30-second threshold).
 
 ### `GET /api/metrics/:deviceId`
 
-Query historical metrics.
+Query historical metrics. Requires `Authorization: Bearer <INGEST_TOKEN or DASHBOARD_TOKEN>`.
 
 **Query params:**
 
 - `from` — timestamp ms (default: 0)
 - `to` — timestamp ms (default: now)
 - `resolution` — `raw` | `hourly` | `daily` (default: `raw`)
+- `limit` — max rows for raw resolution (default: 10000)
 
 ## WebSocket
 
-Connect to `ws://localhost:3000/stream?deviceId=xxx`.
+Connect to `ws://localhost:3000/stream?deviceId=xxx&token=<DASHBOARD_TOKEN>`.
+
+Authentication is required — the token is validated in `preHandler: authenticate` before the WebSocket upgrade.
 
 ### Server → Client messages
 

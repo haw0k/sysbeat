@@ -60,6 +60,7 @@ Edit `.env`:
 PORT=3000
 DB_PATH=./data/sysbeat.db
 INGEST_TOKEN=change-me-in-production
+DASHBOARD_TOKEN=change-me-in-production
 CORS_ORIGIN=http://localhost:5173
 NODE_ENV=development
 ```
@@ -128,16 +129,23 @@ Opens at `http://localhost:5173`. Select a device in the selector — the charts
 ### Health checks
 
 ```bash
-TOKEN="change-me-in-production"
+INGEST_TOKEN="change-me-in-production"
+DASHBOARD_TOKEN="change-me-in-production"
 
 # Check health endpoint (no auth required)
 curl http://localhost:3000/health
 
-# Check device list (requires auth)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices
+# Post a metric (requires INGEST_TOKEN)
+curl -X POST -H "Authorization: Bearer $INGEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"test","timestamp":'$(date +%s%3N)',"cpu":{"usage":10,"user":5,"system":3,"idle":82},"memory":{"total":8192,"used":4096,"free":4096,"percent":50},"load":[0.5,0.4,0.3]}' \
+  http://localhost:3000/ingest
 
-# Check device metrics (requires auth)
-curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
+# Check device list (requires INGEST_TOKEN or DASHBOARD_TOKEN)
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://localhost:3000/devices
+
+# Check device metrics (requires INGEST_TOKEN or DASHBOARD_TOKEN)
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" "http://localhost:3000/api/metrics/linux-device-1?resolution=raw"
 ```
 
 ---
@@ -213,7 +221,8 @@ The setup script uses `nginx/sysbeat.conf`. Key points:
 |----------|----------|---------|-------------|
 | `PORT` | — | `3000` | HTTP server port |
 | `DB_PATH` | — | `./data/sysbeat.db` | SQLite file path |
-| `INGEST_TOKEN` | **yes** | — | Bearer token for POST /ingest |
+| `INGEST_TOKEN` | **yes** | — | Bearer token for collector writes (POST /ingest) |
+| `DASHBOARD_TOKEN` | **yes** | — | Bearer token for dashboard reads (GET endpoints, WS) |
 | `CORS_ORIGIN` | — | `*` | Allowed CORS origin |
 | `NODE_ENV` | — | `development` | Environment |
 
@@ -232,7 +241,7 @@ The setup script uses `nginx/sysbeat.conf`. Key points:
 |----------|----------|---------|-------------|
 | `VITE_API_URL` | — | `""` | REST API base URL (empty = same-origin, for nginx proxy mode) |
 | `VITE_WS_URL` | — | `""` | WebSocket base URL (empty = same-origin) |
-| `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (must match server `INGEST_TOKEN`) |
+| `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (set to server's `DASHBOARD_TOKEN` value) |
 
 ---
 
@@ -241,16 +250,16 @@ The setup script uses `nginx/sysbeat.conf`. Key points:
 ### "No devices connected" in dashboard
 
 1. Check that the collector is running and logs show `status: 200`.
-2. Check `SERVER_URL` and `INGEST_TOKEN` in the collector — they must match the server.
-3. Check `curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/devices` — it should return a list.
+2. Check `SERVER_URL` and `INGEST_TOKEN` in the collector — they must match the server's `INGEST_TOKEN`.
+3. Check `curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://localhost:3000/devices` — it should return a list.
+4. Verify the dashboard uses `DASHBOARD_TOKEN` (not `INGEST_TOKEN`) for `VITE_INGEST_TOKEN`.
 
 ### Dashboard cannot connect to WebSocket
 
 1. Check `VITE_WS_URL` — in development should be `ws://localhost:3000`, in production empty (same-origin, behind nginx).
-2. Check `VITE_INGEST_TOKEN` — must match the server's `INGEST_TOKEN`. The token is sent as `?token=` query parameter for WebSocket auth.
-3. Check CORS: the server must allow the dashboard origin (`CORS_ORIGIN=http://localhost:5173` in dev).
-4. Check DevTools → Network → WS — look for the connection URL with token parameter.
-5. If behind nginx: make sure `/stream` proxies WebSocket (`Upgrade`, `Connection: upgrade`).
+2. Check `VITE_INGEST_TOKEN` — must be set to the server's `DASHBOARD_TOKEN` (not `INGEST_TOKEN`). The token is sent as `?token=` query parameter for WebSocket auth.
+3. Check DevTools → Network → WS — the connection URL must include `?token=...`. Without it, the server returns 401.
+4. If behind nginx: make sure `/stream` proxies WebSocket (`Upgrade`, `Connection: upgrade`).
 
 ### "Database is locked" or "SQLITE_BUSY"
 

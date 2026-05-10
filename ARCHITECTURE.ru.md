@@ -31,9 +31,10 @@
 ### Server
 
 - Fastify HTTP сервер с WebSocket (`@fastify/websocket`)
-- SQLite (`better-sqlite3`, WAL mode) для хранения метрик
+- SQLite (`better-sqlite3`, WAL mode, incremental_vacuum) для хранения метрик
 - REST API: ingest, health, devices, metrics query
-- WebSocket broadcast: отправляет обновления всем подключённым dashboard'ам
+- WebSocket broadcast: отправляет обновления всем подключённым dashboard'ам (требуется auth)
+- Двухтокенная аутентификация: `INGEST_TOKEN` для collector (запись), `DASHBOARD_TOKEN` для dashboard (чтение)
 - Background jobs: retention (7 дней), hourly precompute, heartbeat monitor
 
 ### Dashboard
@@ -75,7 +76,8 @@ Collector (index.ts)
 ### 2. Server → Dashboard
 
 ```
-Dashboard opens ws://server/stream?deviceId=xxx
+Dashboard открывает ws://server/stream?deviceId=xxx&token=yyy
+  │  (токен из VITE_INGEST_TOKEN, в production равен DASHBOARD_TOKEN)
   │
   └─> Server sends init burst (last 100 raw metrics from DB)
        │
@@ -195,6 +197,8 @@ React components
 
 ### `GET /devices`
 
+Требует `Authorization: Bearer <INGEST_TOKEN или DASHBOARD_TOKEN>`.
+
 ```json
 [
   { "deviceId": "raspberry-pi-4", "lastSeen": 1715251200000, "isOnline": true }
@@ -203,10 +207,13 @@ React components
 
 ### `GET /api/metrics/:deviceId`
 
+Требует `Authorization: Bearer <INGEST_TOKEN или DASHBOARD_TOKEN>`.
+
 **Query params:**
 - `from` — timestamp ms (default: 0)
 - `to` — timestamp ms (default: now)
 - `resolution` — `raw` | `hourly` | `daily` (default: `raw`)
+- `limit` — макс. строк для raw (default: 10000)
 
 **Response (raw):**
 ```json
@@ -226,8 +233,10 @@ React components
 ### Подключение
 
 ```
-ws://host:port/stream?deviceId=<deviceId>
+ws://host:port/stream?deviceId=<deviceId>&token=<DASHBOARD_TOKEN>
 ```
+
+WebSocket-соединения требуют аутентификации через query-параметр `?token=` или заголовок `Authorization: Bearer`. Сервер использует `preHandler: authenticate`, который принимает и `INGEST_TOKEN`, и `DASHBOARD_TOKEN`.
 
 ### Сообщения Server → Client
 
@@ -257,9 +266,9 @@ ws://host:port/stream?deviceId=<deviceId>
 
 | Job | Файл | Период | Что делает |
 |-----|------|--------|-----------|
-| Retention | `store/retention.ts` | Каждый час | Удаляет метрики старше 7 дней, orphaned hourly_stats, VACUUM |
+| Retention | `store/retention.ts` | Каждый час | Удаляет метрики старше 7 дней, orphaned hourly_stats, incremental_vacuum если >1000 строк удалено |
 | Precompute | `store/aggregation.ts` | Каждые 10 мин | Пересчитывает `hourly_stats` за последний час |
-| Heartbeat | `websocket/stream.ts` | Каждые 5 сек | Проверяет `mapLastSeen`, отправляет `device-offline` при тишине >30с |
+| Heartbeat | `websocket/stream.ts` | Каждые 5 сек | Проверяет `setOnlineDevices` против `mapLastSeen`, отправляет `device-offline` при тишине >30с |
 
 ---
 
@@ -275,11 +284,11 @@ ws://host:port/stream?deviceId=<deviceId>
 
 ## Security
 
-- **Bearer token** на `POST /ingest` — единственная точка аутентификации
+- **Двухтокенная аутентификация** — `INGEST_TOKEN` для записи collector (`POST /ingest`), `DASHBOARD_TOKEN` для чтения dashboard (`GET /devices`, `/api/metrics`, WS `/stream`). Токен dashboard не даёт доступ на запись.
 - **Rate limiting** — 100 req/min per deviceId, in-memory
 - **CORS** — ограничен origin dashboard'а (`CORS_ORIGIN` env)
 - **Input validation** — Zod на теле запроса и query-параметрах
-- **No auth на WebSocket** — фильтрация по `deviceId` происходит на клиенте (server broadcast'ит всем)
+- **WebSocket auth** — `preHandler: authenticate` на `/stream`, токен передаётся как `?token=`. Неавторизованные соединения получают HTTP 401 до апгрейда.
 
 ---
 
@@ -287,18 +296,21 @@ ws://host:port/stream?deviceId=<deviceId>
 
 ```
 src/
-├── server.ts              # Entry point: Fastify init, route registration, jobs
+├── server.ts              # Точка входа: Fastify init, регистрация роутов, jobs
 ├── config.ts              # Zod env validation, objConfig
 ├── routes/
+│   ├── auth.ts            # Двухтокенная auth: authenticate, authenticateIngest
 │   ├── ingest.ts          # POST /ingest
 │   ├── health.ts          # GET /health
 │   ├── devices.ts         # GET /devices
 │   └── metrics.ts         # GET /api/metrics/:deviceId
 ├── websocket/
 │   └── stream.ts          # WS /stream, broadcast, heartbeat
+├── types/
+│   └── index.ts           # Общие типы и интерфейсы
 └── store/
-    ├── db.ts              # Singleton DB connection, migrations
+    ├── db.ts              # Singleton DB connection, миграции
     ├── metrics-store.ts   # INSERT, SELECT raw metrics
     ├── aggregation.ts     # Hourly/daily precompute
-    └── retention.ts       # Cleanup old data
+    └── retention.ts       # Очистка старых данных
 ```
