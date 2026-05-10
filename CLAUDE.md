@@ -1,75 +1,65 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## Commands
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-All commands run from the `server/` directory:
+## 1. Think Before Coding
 
-- `pnpm run dev` — Start development server (tsx + nodemon, hot reload)
-- `pnpm run build` — Compile TypeScript to `dist/`
-- `pnpm start` — Run compiled production build (`node dist/server.js`)
-- `pnpm run lint` — Type-check without emitting (`tsc --noEmit`)
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-## Project Conventions
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-- **Module system:** ESM (`"type": "module"`). All internal imports must use `.js` extensions even for `.ts` files (NodeNext module resolution).
-- **TypeScript:** Strict mode enabled. No unused locals/parameters. `noImplicitReturns` and `noFallthroughCasesInSwitch` are on.
-- **Naming:** Hungarian notation is used project-wide:
-  - `str*` strings, `n*` numbers, `b*` booleans, `obj*` objects, `arr*` arrays
-  - `fn*` functions, `map*` Maps, `set*` Sets, `stmt*` prepared statements
-  - `db*` database connections, `timer*` intervals/timeouts
+## 2. Simplicity First
 
-## Architecture
+**Minimum code that solves the problem. Nothing speculative.**
 
-The server is a Fastify app with WebSocket support, using `better-sqlite3` for synchronous SQLite I/O.
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-### Entry Point (`src/server.ts`)
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-- Initializes Fastify, registers `@fastify/cors` and `@fastify/websocket`
-- Registers all route modules from `src/routes/`
-- Starts background jobs: retention (hourly), heartbeat monitor (every 5s), hourly precompute (every 10m)
-- Graceful shutdown on `SIGINT`/`SIGTERM`: clears timers, closes Fastify, closes DB connection
+## 3. Surgical Changes
 
-### Configuration (`src/config.ts`)
+**Touch only what you must. Clean up only your own mess.**
 
-- Validates `process.env` with Zod at module load time
-- Calls `process.exit(1)` on validation failure
-- All tunables (retention days, rate limits, intervals, thresholds) live here as `objConfig`
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
 
-### Data Access Layer (`src/store/`)
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
 
-- **Singleton DB connection** (`db.ts`): `getDb()` lazily opens `better-sqlite3` with WAL mode and runs migrations. Store modules call `getDb()` at the top level, so importing any store module triggers DB init.
-- **Prepared statements** are compiled once at module load time in each store file (`metrics-store.ts`, `aggregation.ts`, `retention.ts`).
-- **No ORM or query builder**: raw SQL with `?` placeholders.
-- **Schema:** `metrics` table for raw data, `hourly_stats` for precomputed aggregations.
+The test: Every changed line should trace directly to the user's request.
 
-### Routes (`src/routes/`)
+## 4. Goal-Driven Execution
 
-Each file exports an async `register*Route(objApp: FastifyInstance)` function. Routes:
+**Define success criteria. Loop until verified.**
 
-- `POST /ingest` — Bearer token auth (from `INGEST_TOKEN` env), Zod body validation, per-device rate limiting (100 req/min in-memory), inserts metric and broadcasts WebSocket `update`.
-- `GET /health` — DB size, device count, uptime, last ingest timestamp.
-- `GET /devices` — Known devices with online/offline status (30s threshold from in-memory `mapLastSeen`).
-- `GET /api/metrics/:deviceId` — `resolution` query: `raw` (last 10k, newest first), `hourly`, `daily`.
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
 
-### WebSocket (`src/websocket/stream.ts`)
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
 
-- `WS /stream?deviceId=xxx` — On connect, sends `init` with last 100 raw metrics for that device.
-- Maintains `Set<WebSocket>` of connected clients and `Map<string, number>` of last-seen timestamps.
-- `broadcastUpdate`, `broadcastDeviceOnline`, `broadcastDeviceOffline` iterate the client set.
-- `markDeviceSeen()` is called from the ingest route. If the device was unknown, `device-online` is broadcast.
-- Heartbeat monitor checks every 5s; devices silent >30s get `device-offline` broadcast and are removed from `mapLastSeen`.
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-### Background Jobs
+---
 
-- **Retention** (`src/store/retention.ts`): Deletes metrics older than 7 days and orphaned `hourly_stats`, then runs `VACUUM`. Runs immediately on startup and every hour.
-- **Precompute** (`src/store/aggregation.ts`): Recomputes `hourly_stats` for the last hour across all known devices. Runs immediately on startup and every 10 minutes.
-
-### Types (`src/types/`)
-
-- Domain types and a custom `better-sqlite3.d.ts` declaration file (the `@types/better-sqlite3` package installed by pnpm is not hoisted to root `node_modules`, so a local declaration is needed for the compiler).
-
-## Testing
-
-There is no test framework or test suite currently. The project was specified as "tests not needed, but structure testable."
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

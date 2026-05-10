@@ -1,67 +1,79 @@
 import { getDb } from './db.js';
 import type { IAggregationBucket } from '../types/index.js';
 
-const db = getDb();
+let stmtHourly: ReturnType<ReturnType<typeof getDb>['prepare']> | null = null;
+let stmtDaily: ReturnType<ReturnType<typeof getDb>['prepare']> | null = null;
+let stmtUpsertHourly: ReturnType<ReturnType<typeof getDb>['prepare']> | null = null;
+let stmtPrecomputeRange: ReturnType<ReturnType<typeof getDb>['prepare']> | null = null;
+let bInitialized = false;
 
-const stmtHourly = db.prepare(`
-  SELECT
-    strftime('%Y-%m-%dT%H:00', timestamp / 1000, 'unixepoch') as bucket,
-    ROUND(AVG(cpu_usage), 1) as avgCpu,
-    ROUND(MAX(cpu_usage), 1) as maxCpu,
-    ROUND(AVG(mem_percent), 1) as avgMem,
-    ROUND(MAX(mem_percent), 1) as maxMem,
-    COUNT(*) as samples
-  FROM metrics
-  WHERE device_id = ? AND timestamp BETWEEN ? AND ?
-  GROUP BY bucket
-  ORDER BY bucket
-`);
+function ensureInitialized(): void {
+  if (bInitialized) return;
+  const db = getDb();
 
-const stmtDaily = db.prepare(`
-  SELECT
-    strftime('%Y-%m-%d', timestamp / 1000, 'unixepoch') as bucket,
-    ROUND(AVG(cpu_usage), 1) as avgCpu,
-    ROUND(MAX(cpu_usage), 1) as maxCpu,
-    ROUND(AVG(mem_percent), 1) as avgMem,
-    ROUND(MAX(mem_percent), 1) as maxMem,
-    COUNT(*) as samples
-  FROM metrics
-  WHERE device_id = ? AND timestamp BETWEEN ? AND ?
-  GROUP BY bucket
-  ORDER BY bucket
-`);
+  stmtHourly = db.prepare(`
+    SELECT
+      strftime('%Y-%m-%dT%H:00', timestamp / 1000, 'unixepoch') as bucket,
+      ROUND(AVG(cpu_usage), 1) as avgCpu,
+      ROUND(MAX(cpu_usage), 1) as maxCpu,
+      ROUND(AVG(mem_percent), 1) as avgMem,
+      ROUND(MAX(mem_percent), 1) as maxMem,
+      COUNT(*) as samples
+    FROM metrics
+    WHERE device_id = ? AND timestamp BETWEEN ? AND ?
+    GROUP BY bucket
+    ORDER BY bucket
+  `);
 
-const stmtUpsertHourly = db.prepare(`
-  INSERT INTO hourly_stats (device_id, hour, avg_cpu, max_cpu, avg_mem, max_mem, samples)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(device_id, hour) DO UPDATE SET
-    avg_cpu = excluded.avg_cpu,
-    max_cpu = excluded.max_cpu,
-    avg_mem = excluded.avg_mem,
-    max_mem = excluded.max_mem,
-    samples = excluded.samples
-`);
+  stmtDaily = db.prepare(`
+    SELECT
+      strftime('%Y-%m-%d', timestamp / 1000, 'unixepoch') as bucket,
+      ROUND(AVG(cpu_usage), 1) as avgCpu,
+      ROUND(MAX(cpu_usage), 1) as maxCpu,
+      ROUND(AVG(mem_percent), 1) as avgMem,
+      ROUND(MAX(mem_percent), 1) as maxMem,
+      COUNT(*) as samples
+    FROM metrics
+    WHERE device_id = ? AND timestamp BETWEEN ? AND ?
+    GROUP BY bucket
+    ORDER BY bucket
+  `);
 
-const stmtPrecomputeRange = db.prepare(`
-  SELECT
-    strftime('%Y-%m-%dT%H:00', timestamp / 1000, 'unixepoch') as bucket,
-    ROUND(AVG(cpu_usage), 1) as avgCpu,
-    ROUND(MAX(cpu_usage), 1) as maxCpu,
-    ROUND(AVG(mem_percent), 1) as avgMem,
-    ROUND(MAX(mem_percent), 1) as maxMem,
-    COUNT(*) as samples
-  FROM metrics
-  WHERE device_id = ? AND timestamp >= ? AND timestamp < ?
-  GROUP BY bucket
-  ORDER BY bucket
-`);
+  stmtUpsertHourly = db.prepare(`
+    INSERT INTO hourly_stats (device_id, hour, avg_cpu, max_cpu, avg_mem, max_mem, samples)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(device_id, hour) DO UPDATE SET
+      avg_cpu = excluded.avg_cpu,
+      max_cpu = excluded.max_cpu,
+      avg_mem = excluded.avg_mem,
+      max_mem = excluded.max_mem,
+      samples = excluded.samples
+  `);
+
+  stmtPrecomputeRange = db.prepare(`
+    SELECT
+      strftime('%Y-%m-%dT%H:00', timestamp / 1000, 'unixepoch') as bucket,
+      ROUND(AVG(cpu_usage), 1) as avgCpu,
+      ROUND(MAX(cpu_usage), 1) as maxCpu,
+      ROUND(AVG(mem_percent), 1) as avgMem,
+      ROUND(MAX(mem_percent), 1) as maxMem,
+      COUNT(*) as samples
+    FROM metrics
+    WHERE device_id = ? AND timestamp >= ? AND timestamp < ?
+    GROUP BY bucket
+    ORDER BY bucket
+  `);
+
+  bInitialized = true;
+}
 
 export function getHourlyAggregation(
   strDeviceId: string,
   nFrom: number,
   nTo: number
 ): IAggregationBucket[] {
-  return stmtHourly.all(strDeviceId, nFrom, nTo) as IAggregationBucket[];
+  ensureInitialized();
+  return stmtHourly!.all(strDeviceId, nFrom, nTo) as IAggregationBucket[];
 }
 
 export function getDailyAggregation(
@@ -69,7 +81,8 @@ export function getDailyAggregation(
   nFrom: number,
   nTo: number
 ): IAggregationBucket[] {
-  return stmtDaily.all(strDeviceId, nFrom, nTo) as IAggregationBucket[];
+  ensureInitialized();
+  return stmtDaily!.all(strDeviceId, nFrom, nTo) as IAggregationBucket[];
 }
 
 export function precomputeHourlyStats(
@@ -77,7 +90,8 @@ export function precomputeHourlyStats(
   nHourStart: number,
   nHourEnd: number
 ): void {
-  const arrBuckets = stmtPrecomputeRange.all(strDeviceId, nHourStart, nHourEnd) as Array<{
+  ensureInitialized();
+  const arrBuckets = stmtPrecomputeRange!.all(strDeviceId, nHourStart, nHourEnd) as Array<{
     bucket: string;
     avgCpu: number;
     maxCpu: number;
@@ -87,7 +101,7 @@ export function precomputeHourlyStats(
   }>;
 
   for (const objBucket of arrBuckets) {
-    stmtUpsertHourly.run(
+    stmtUpsertHourly!.run(
       strDeviceId,
       objBucket.bucket,
       objBucket.avgCpu,

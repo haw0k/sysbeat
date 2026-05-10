@@ -37,7 +37,7 @@ pnpm start
 | PORT          | 3000                    | HTTP server port                         |
 | DB_PATH       | ./data/sysbeat.db       | SQLite database file path                |
 | INGEST_TOKEN  | —                       | Bearer token required for POST /ingest   |
-| CORS_ORIGIN   | *                       | Allowed CORS origin for frontend           |
+| CORS_ORIGIN   | *                       | Allowed CORS origin for frontend         |
 | NODE_ENV      | development             | Runtime environment                      |
 
 ## API

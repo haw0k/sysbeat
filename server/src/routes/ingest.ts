@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { objConfig } from '../config.js';
+import { bTimingSafeCompare } from './auth.js';
 import { insertMetric } from '../store/metrics-store.js';
 import { broadcastUpdate, broadcastDeviceOnline, markDeviceSeen } from '../websocket/stream.js';
 import type { IMetricPayload, IRateLimitEntry } from '../types/index.js';
@@ -25,8 +26,20 @@ const objIngestSchema = z.object({
 
 const mapRateLimits = new Map<string, IRateLimitEntry>();
 
+// Periodic cleanup of expired rate-limit entries every 60s
+const timerRateLimitCleanup = setInterval(() => {
+  const nNow = Date.now();
+  for (const [strKey, objEntry] of mapRateLimits.entries()) {
+    if (nNow > objEntry.nResetTime) {
+      mapRateLimits.delete(strKey);
+    }
+  }
+}, 60_000);
+if (timerRateLimitCleanup.unref) timerRateLimitCleanup.unref();
+
 function checkRateLimit(strDeviceId: string): boolean {
   const nNow = Date.now();
+
   const objEntry = mapRateLimits.get(strDeviceId);
 
   if (!objEntry || nNow > objEntry.nResetTime) {
@@ -47,7 +60,7 @@ export async function registerIngestRoute(objApp: FastifyInstance): Promise<void
     const strAuth = objRequest.headers.authorization ?? '';
     const strToken = strAuth.replace(/^Bearer\s+/i, '');
 
-    if (strToken !== objConfig.strIngestToken) {
+    if (!bTimingSafeCompare(strToken, objConfig.strIngestToken)) {
       return objReply.status(401).send({ error: 'Unauthorized' });
     }
 
@@ -65,14 +78,15 @@ export async function registerIngestRoute(objApp: FastifyInstance): Promise<void
       return objReply.status(400).send({ error: 'Validation failed', details: objParsed.error.format() });
     }
 
-    const objMetric: IMetricPayload = objParsed.data;
+    // Clone to avoid mutating the Zod-validated object
+    const objMetric: IMetricPayload = { ...objParsed.data };
 
     if (!checkRateLimit(objMetric.deviceId)) {
       return objReply.status(429).send({ error: 'Rate limit exceeded' });
     }
 
-    // Normalize timestamp to ms if it looks like seconds (before year 3000 in ms)
-    if (objMetric.timestamp < 1_000_000_000_000) {
+    // Normalize timestamp to ms if it looks like seconds (before year 2033 in ms)
+    if (objMetric.timestamp < 2_000_000_000_000) {
       objMetric.timestamp *= 1000;
     }
 
@@ -80,10 +94,10 @@ export async function registerIngestRoute(objApp: FastifyInstance): Promise<void
     insertMetric(objMetric);
 
     if (!bWasKnown) {
-      broadcastDeviceOnline(objMetric.deviceId);
+      setImmediate(() => broadcastDeviceOnline(objMetric.deviceId));
     }
 
-    broadcastUpdate(objMetric);
+    setImmediate(() => broadcastUpdate(objMetric));
 
     return { success: true };
   });

@@ -7,6 +7,7 @@ export function getDb(): Database {
   if (!dbConnection) {
     dbConnection = new Database(objConfig.strDbPath);
     dbConnection.pragma('journal_mode = WAL');
+    dbConnection.pragma('auto_vacuum = INCREMENTAL');
     runMigrations(dbConnection);
   }
   return dbConnection;
@@ -28,8 +29,11 @@ function runMigrations(db: Database): void {
       cpu_usage REAL,
       cpu_user REAL,
       cpu_system REAL,
+      cpu_idle REAL,
       mem_percent REAL,
+      mem_total_mb INTEGER,
       mem_used_mb INTEGER,
+      mem_free_mb INTEGER,
       load_1m REAL,
       load_5m REAL,
       load_15m REAL
@@ -37,6 +41,9 @@ function runMigrations(db: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_metrics_time
       ON metrics(device_id, timestamp);
+
+    CREATE INDEX IF NOT EXISTS idx_metrics_timestamp
+      ON metrics(timestamp);
 
     CREATE TABLE IF NOT EXISTS hourly_stats (
       device_id TEXT,
@@ -52,4 +59,9 @@ function runMigrations(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_hourly
       ON hourly_stats(device_id, hour);
   `);
+
+  // Add columns for existing databases (migrating from older schema)
+  try { db.exec('ALTER TABLE metrics ADD COLUMN cpu_idle REAL'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE metrics ADD COLUMN mem_total_mb INTEGER'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE metrics ADD COLUMN mem_free_mb INTEGER'); } catch { /* already exists */ }
 }

@@ -1,9 +1,31 @@
 import { FastifyInstance } from 'fastify';
 import { getMetricsRaw } from '../store/metrics-store.js';
 import { getHourlyAggregation, getDailyAggregation } from '../store/aggregation.js';
+import { authenticate } from './auth.js';
+import type { IMetricPayload } from '../types/index.js';
+
+function rehydrateMetrics(arrRows: ReturnType<typeof getMetricsRaw>): IMetricPayload[] {
+  return arrRows.map((objRow) => ({
+    deviceId: objRow.deviceId,
+    timestamp: objRow.timestamp,
+    cpu: {
+      usage: objRow.cpuUsage,
+      user: objRow.cpuUser,
+      system: objRow.cpuSystem,
+      idle: objRow.cpuIdle,
+    },
+    memory: {
+      total: objRow.memTotalMb,
+      used: objRow.memUsedMb,
+      free: objRow.memFreeMb,
+      percent: objRow.memPercent,
+    },
+    load: [objRow.load1m, objRow.load5m, objRow.load15m],
+  }));
+}
 
 export async function registerMetricsRoute(objApp: FastifyInstance): Promise<void> {
-  objApp.get('/api/metrics/:deviceId', async (objRequest, objReply) => {
+  objApp.get('/api/metrics/:deviceId', { preHandler: authenticate }, async (objRequest, objReply) => {
     const strDeviceId = (objRequest.params as Record<string, string>).deviceId;
     const objQuery = objRequest.query as Record<string, string | undefined>;
 
@@ -27,7 +49,8 @@ export async function registerMetricsRoute(objApp: FastifyInstance): Promise<voi
       case 'raw':
       default: {
         const arrRaw = getMetricsRaw(strDeviceId, nFrom, nTo, 10_000);
-        return { deviceId: strDeviceId, resolution: 'raw', data: arrRaw.reverse() };
+        const arrPayloads = rehydrateMetrics(arrRaw);
+        return { deviceId: strDeviceId, resolution: 'raw', data: arrPayloads.reverse() };
       }
     }
   });

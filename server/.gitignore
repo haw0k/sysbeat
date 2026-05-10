@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+
+# Logs
+*.log
+logs/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Misc
+.claude/
+.cache/
+tmp/
+temp/

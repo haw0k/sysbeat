@@ -37,15 +37,19 @@ async function startServer(): Promise<void> {
   await registerStreamRoute(objApp);
 
   // Background jobs
-  const timerRetention = startRetentionJob();
+  const timerRetention = startRetentionJob(objApp.log);
   const timerHeartbeat = startHeartbeatMonitor();
 
   const fnPrecomputeAll = (): void => {
-    const nHourAgo = Date.now() - 60 * 60 * 1000;
-    const nNow = Date.now();
-    const arrDevices = getDevices();
-    for (const objDevice of arrDevices) {
-      precomputeHourlyStats(objDevice.deviceId, nHourAgo, nNow);
+    try {
+      const nHourAgo = Date.now() - 60 * 60 * 1000;
+      const nNow = Date.now();
+      const arrDevices = getDevices();
+      for (const objDevice of arrDevices) {
+        precomputeHourlyStats(objDevice.deviceId, nHourAgo, nNow);
+      }
+    } catch (objErr) {
+      objApp.log.error(objErr, 'Precompute job failed');
     }
   };
 
@@ -61,11 +65,13 @@ async function startServer(): Promise<void> {
     clearInterval(timerHeartbeat);
     clearInterval(timerPrecompute);
 
-    await objApp.close();
-    closeDb();
-
-    objApp.log.info('Server shut down.');
-    process.exit(0);
+    try {
+      await objApp.close();
+      closeDb();
+      objApp.log.info('Server shut down.');
+    } catch (objErr) {
+      objApp.log.error(objErr, 'Error during shutdown');
+    }
   };
 
   process.on('SIGINT', () => void fnShutdown('SIGINT'));

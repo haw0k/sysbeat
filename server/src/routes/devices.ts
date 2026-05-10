@@ -2,10 +2,11 @@ import { FastifyInstance } from 'fastify';
 import { objConfig } from '../config.js';
 import { getDevices } from '../store/metrics-store.js';
 import { getLastSeenMap } from '../websocket/stream.js';
+import { authenticate } from './auth.js';
 import type { IDeviceInfo } from '../types/index.js';
 
 export async function registerDevicesRoute(objApp: FastifyInstance): Promise<void> {
-  objApp.get('/devices', async () => {
+  objApp.get('/devices', { preHandler: authenticate }, async () => {
     const arrDbDevices = getDevices();
     const mapLastSeen = getLastSeenMap();
     const nNow = Date.now();
