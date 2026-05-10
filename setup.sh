@@ -120,6 +120,9 @@ for DIR in server collector dashboard; do
     if [ "$DIR" = "server" ]; then
       pnpm approve-builds better-sqlite3 esbuild
       pnpm rebuild better-sqlite3 esbuild
+    else
+      pnpm approve-builds esbuild
+      pnpm rebuild esbuild
     fi
     set -e
   )
