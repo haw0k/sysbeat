@@ -31,7 +31,17 @@ export async function registerMetricsRoute(objApp: FastifyInstance): Promise<voi
 
     const nFrom = objQuery.from ? Number(objQuery.from) : 0;
     const nTo = objQuery.to ? Number(objQuery.to) : Date.now();
-    const strResolution = (objQuery.resolution ?? 'raw') as 'raw' | 'hourly' | 'daily';
+    const strResolutionRaw = objQuery.resolution ?? 'raw';
+
+    if (!Number.isFinite(nFrom) || !Number.isFinite(nTo)) {
+      return objReply.status(400).send({ error: 'from and to must be valid numbers' });
+    }
+
+    if (!['raw', 'hourly', 'daily'].includes(strResolutionRaw)) {
+      return objReply.status(400).send({ error: 'resolution must be raw, hourly, or daily' });
+    }
+
+    const strResolution = strResolutionRaw as 'raw' | 'hourly' | 'daily';
 
     if (!strDeviceId) {
       return objReply.status(400).send({ error: 'deviceId is required' });

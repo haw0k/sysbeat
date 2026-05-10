@@ -102,13 +102,15 @@ function trySend(objPayload: IMetricPayload): Promise<ISendResult> {
     });
 
     objReq.on('timeout', () => {
-      objReq.destroy();
       resolveOnce({ bSuccess: false, nStatusCode: 0, strError: 'Request timeout' });
+      objReq.destroy();
     });
 
     // Fallback: if connection closes without firing any of the above handlers
     objReq.on('close', () => {
-      resolveOnce({ bSuccess: false, nStatusCode: 0, strError: 'Connection closed unexpectedly' });
+      if (!bResolved) {
+        resolveOnce({ bSuccess: false, nStatusCode: 0, strError: 'Connection closed unexpectedly' });
+      }
     });
 
     objReq.write(strBody);

@@ -58,6 +58,17 @@ export function useWebSocket(): void {
       if (isCleanupRef.current) return;
       try {
         const message = JSON.parse(event.data) as TWebSocketMessage;
+
+        // device-online/offline events are global — process regardless of selectedDevice
+        if (message.type === 'device-online') {
+          markDeviceOnline(message.deviceId);
+          return;
+        }
+        if (message.type === 'device-offline') {
+          markDeviceOffline(message.deviceId);
+          return;
+        }
+
         if (message.deviceId !== selectedDevice) return;
         handleMessage(message);
       } catch {
@@ -66,7 +77,7 @@ export function useWebSocket(): void {
     });
 
     ws.addEventListener('close', () => {
-      if (isCleanupRef.current) return;
+      if (isCleanupRef.current || wsRef.current !== ws) return;
       setConnected(false);
       scheduleReconnect();
     });

@@ -73,10 +73,12 @@ if ! command -v pnpm &>/dev/null; then
 fi
 log_ok "pnpm $(pnpm -v)"
 
-# --- Token ---
-log_info "Generating INGEST_TOKEN..."
+# --- Tokens ---
+log_info "Generating tokens..."
 INGEST_TOKEN=$(openssl rand -hex 32)
-log_ok "Token: ${INGEST_TOKEN:0:16}..."
+DASHBOARD_TOKEN=$(openssl rand -hex 32)
+log_ok "Ingest: ${INGEST_TOKEN:0:16}..."
+log_ok "Dashboard: ${DASHBOARD_TOKEN:0:16}..."
 
 # --- Server ---
 log_info "Configuring server..."
@@ -91,6 +93,7 @@ cat > server/.env <<EOF
 PORT=3000
 DB_PATH=./data/sysbeat.db
 INGEST_TOKEN=${INGEST_TOKEN}
+DASHBOARD_TOKEN=${DASHBOARD_TOKEN}
 CORS_ORIGIN=${SERVER_CORS}
 NODE_ENV=$( $PROD && echo "production" || echo "development" )
 EOF
@@ -123,7 +126,7 @@ fi
 cat > dashboard/.env.local <<EOF
 VITE_API_URL=${DASHBOARD_API_URL}
 VITE_WS_URL=${DASHBOARD_WS_URL}
-VITE_INGEST_TOKEN=${INGEST_TOKEN}
+VITE_INGEST_TOKEN=${DASHBOARD_TOKEN}
 EOF
 log_ok "dashboard/.env.local created"
 

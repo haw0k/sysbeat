@@ -11,8 +11,7 @@ interface IProcMeminfo {
 let nPrevUser = 0;
 let nPrevSystem = 0;
 let nPrevIdle = 0;
-let nPrevIrq = 0;
-let nPrevSoftirq = 0;
+let nPrevIowait = 0;
 let nPrevTotal = 0;
 let bFirstRun = true;
 
@@ -56,8 +55,7 @@ export function readProcStat(): { nUsage: number; nUser: number; nSystem: number
     nPrevUser = nUser;
     nPrevSystem = nSystem;
     nPrevIdle = nIdle;
-    nPrevIrq = nIrq;
-    nPrevSoftirq = nSoftirq;
+    nPrevIowait = nIowait;
     nPrevTotal = nTotal;
     return { nUsage: 0, nUser: 0, nSystem: 0, nIdle: 100 };
   }
@@ -68,13 +66,13 @@ export function readProcStat(): { nUsage: number; nUser: number; nSystem: number
   }
 
   // Calculate percentages from deltas
+  // Active = total - idle - iowait (matches top/htop behavior)
   const nDeltaUser = nUser - nPrevUser;
   const nDeltaSystem = nSystem - nPrevSystem;
   const nDeltaIdle = nIdle - nPrevIdle;
-  const nDeltaIrq = nIrq - nPrevIrq;
-  const nDeltaSoftirq = nSoftirq - nPrevSoftirq;
+  const nDeltaIowait = nIowait - nPrevIowait;
 
-  const nUsage = 100 * (nDeltaUser + nDeltaSystem + nDeltaIrq + nDeltaSoftirq) / nDeltaTotal;
+  const nUsage = 100 * (nDeltaTotal - nDeltaIdle - nDeltaIowait) / nDeltaTotal;
   const nIdlePct = 100 * nDeltaIdle / nDeltaTotal;
   const nUserPct = 100 * nDeltaUser / nDeltaTotal;
   const nSystemPct = 100 * nDeltaSystem / nDeltaTotal;
@@ -83,8 +81,7 @@ export function readProcStat(): { nUsage: number; nUser: number; nSystem: number
   nPrevUser = nUser;
   nPrevSystem = nSystem;
   nPrevIdle = nIdle;
-  nPrevIrq = nIrq;
-  nPrevSoftirq = nSoftirq;
+  nPrevIowait = nIowait;
   nPrevTotal = nTotal;
 
   return {

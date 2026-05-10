@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { objConfig } from '../config.js';
-import { bTimingSafeCompare } from './auth.js';
+import { authenticateIngest } from './auth.js';
 import { insertMetric } from '../store/metrics-store.js';
 import { broadcastUpdate, broadcastDeviceOnline, markDeviceSeen } from '../websocket/stream.js';
 import type { IMetricPayload, IRateLimitEntry } from '../types/index.js';
@@ -26,7 +26,6 @@ const objIngestSchema = z.object({
 
 const mapRateLimits = new Map<string, IRateLimitEntry>();
 
-// Periodic cleanup of expired rate-limit entries every 60s
 const timerRateLimitCleanup = setInterval(() => {
   const nNow = Date.now();
   for (const [strKey, objEntry] of mapRateLimits.entries()) {
@@ -56,24 +55,8 @@ function checkRateLimit(strDeviceId: string): boolean {
 }
 
 export async function registerIngestRoute(objApp: FastifyInstance): Promise<void> {
-  objApp.post('/ingest', async (objRequest, objReply) => {
-    const strAuth = objRequest.headers.authorization ?? '';
-    const strToken = strAuth.replace(/^Bearer\s+/i, '');
-
-    if (!bTimingSafeCompare(strToken, objConfig.strIngestToken)) {
-      return objReply.status(401).send({ error: 'Unauthorized' });
-    }
-
-    let objBody: unknown;
-    try {
-      objBody = typeof objRequest.body === 'string'
-        ? JSON.parse(objRequest.body)
-        : objRequest.body;
-    } catch {
-      return objReply.status(400).send({ error: 'Invalid JSON body' });
-    }
-
-    const objParsed = objIngestSchema.safeParse(objBody);
+  objApp.post('/ingest', { preHandler: authenticateIngest }, async (objRequest, objReply) => {
+    const objParsed = objIngestSchema.safeParse(objRequest.body);
     if (!objParsed.success) {
       return objReply.status(400).send({ error: 'Validation failed', details: objParsed.error.format() });
     }

@@ -8,6 +8,7 @@ const objEnvSchema = z.object({
   PORT: z.string().default('3000').transform(Number),
   DB_PATH: z.string().default('./data/sysbeat.db'),
   INGEST_TOKEN: z.string().min(1, 'INGEST_TOKEN is required'),
+  DASHBOARD_TOKEN: z.string().min(1, 'DASHBOARD_TOKEN is required'),
   CORS_ORIGIN: z.string().default('*'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
@@ -24,6 +25,7 @@ export const objConfig = {
   nPort: objParsed.data.PORT,
   strDbPath: resolve(objParsed.data.DB_PATH),
   strIngestToken: objParsed.data.INGEST_TOKEN,
+  strDashboardToken: objParsed.data.DASHBOARD_TOKEN,
   strCorsOrigin: objParsed.data.CORS_ORIGIN,
   strNodeEnv: objParsed.data.NODE_ENV,
   nRetentionDays: 7,

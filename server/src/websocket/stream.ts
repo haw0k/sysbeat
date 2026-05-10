@@ -77,12 +77,16 @@ export function broadcastDeviceOffline(strDeviceId: string): void {
 export function startHeartbeatMonitor(): NodeJS.Timeout {
   const fnCheck = (): void => {
     const nNow = Date.now();
+    const arrOffline: string[] = [];
     for (const strDeviceId of setOnlineDevices) {
       const nLastSeen = mapLastSeen.get(strDeviceId) ?? 0;
       if (nNow - nLastSeen >= objConfig.nDeviceOfflineThresholdMs) {
-        setOnlineDevices.delete(strDeviceId);
-        broadcastDeviceOffline(strDeviceId);
+        arrOffline.push(strDeviceId);
       }
+    }
+    for (const strDeviceId of arrOffline) {
+      setOnlineDevices.delete(strDeviceId);
+      broadcastDeviceOffline(strDeviceId);
     }
   };
 

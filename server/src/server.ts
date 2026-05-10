@@ -41,15 +41,15 @@ async function startServer(): Promise<void> {
   const timerHeartbeat = startHeartbeatMonitor();
 
   const fnPrecomputeAll = (): void => {
-    try {
-      const nHourAgo = Date.now() - 60 * 60 * 1000;
-      const nNow = Date.now();
-      const arrDevices = getDevices();
-      for (const objDevice of arrDevices) {
+    const nHourAgo = Date.now() - 60 * 60 * 1000;
+    const nNow = Date.now();
+    const arrDevices = getDevices();
+    for (const objDevice of arrDevices) {
+      try {
         precomputeHourlyStats(objDevice.deviceId, nHourAgo, nNow);
+      } catch (objErr) {
+        objApp.log.error(objErr, `Precompute failed for device ${objDevice.deviceId}`);
       }
-    } catch (objErr) {
-      objApp.log.error(objErr, 'Precompute job failed');
     }
   };
 
@@ -74,8 +74,8 @@ async function startServer(): Promise<void> {
     }
   };
 
-  process.on('SIGINT', () => void fnShutdown('SIGINT'));
-  process.on('SIGTERM', () => void fnShutdown('SIGTERM'));
+  process.on('SIGINT', () => { fnShutdown('SIGINT').catch((objErr) => objApp.log.error(objErr, 'SIGINT shutdown failed')); });
+  process.on('SIGTERM', () => { fnShutdown('SIGTERM').catch((objErr) => objApp.log.error(objErr, 'SIGTERM shutdown failed')); });
 
   try {
     const strHost = await objApp.listen({ port: objConfig.nPort, host: '0.0.0.0' });

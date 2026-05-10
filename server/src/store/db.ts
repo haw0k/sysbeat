@@ -61,7 +61,19 @@ function runMigrations(db: Database): void {
   `);
 
   // Add columns for existing databases (migrating from older schema)
-  try { db.exec('ALTER TABLE metrics ADD COLUMN cpu_idle REAL'); } catch { /* already exists */ }
-  try { db.exec('ALTER TABLE metrics ADD COLUMN mem_total_mb INTEGER'); } catch { /* already exists */ }
-  try { db.exec('ALTER TABLE metrics ADD COLUMN mem_free_mb INTEGER'); } catch { /* already exists */ }
+  // SQLite error "duplicate column name" has code 'SQLITE_ERROR' with a specific message
+  function safeAddColumn(strSql: string): void {
+    try {
+      db.exec(strSql);
+    } catch (objErr) {
+      const strMsg = objErr instanceof Error ? objErr.message : String(objErr);
+      if (!strMsg.includes('duplicate column name')) {
+        throw objErr;
+      }
+    }
+  }
+
+  safeAddColumn('ALTER TABLE metrics ADD COLUMN cpu_idle REAL');
+  safeAddColumn('ALTER TABLE metrics ADD COLUMN mem_total_mb INTEGER');
+  safeAddColumn('ALTER TABLE metrics ADD COLUMN mem_free_mb INTEGER');
 }
