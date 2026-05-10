@@ -8,8 +8,7 @@
 
 1. [Development (локальная разработка)](#development)
 2. [Production (сервер + systemd)](#production)
-3. [Reverse Proxy (nginx)](#reverse-proxy)
-4. [Troubleshooting](#troubleshooting)
+3. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -19,7 +18,7 @@
 
 - Node.js >= 20
 - pnpm >= 9
-- Linux или WSL (для запуска collector)
+- Linux (для запуска collector)
 
 ### Шаг 1. Клонирование и установка
 
@@ -36,7 +35,7 @@ cd sysbeat
 
 Одна команда генерирует случайный `INGEST_TOKEN`, создаёт все файлы `.env` и `.env.local`, и устанавливает зависимости. Дальше переходите к шагу 5 для запуска сервисов.
 
-Для production: `./setup.sh --prod` (ещё и собирает). С systemd: `sudo ./setup.sh --prod --install-systemd`.
+Для production: `./setup.sh --prod` (собирает и деплоит в `/opt/sysbeat`). С nginx: `sudo ./setup.sh --prod --install-nginx`. Полная установка: `sudo ./setup.sh --prod --install-systemd --install-nginx`.
 
 #### Ручная установка
 
@@ -126,37 +125,6 @@ pnpm run dev
 
 Откроется `http://localhost:5173`. Выберите устройство в селекторе — графики оживут.
 
-### Разработка в WSL + браузер на Windows
-
-Если сервер и collector запущены в WSL, а браузер — на Windows, `localhost` в Windows и WSL — разные хосты. Используйте WSL IP:
-
-```bash
-# Узнайте IP WSL
-hostname -I | awk '{print $1}'
-# Пример: 172.31.199.36
-```
-
-1. **Server**: запустите с `CORS_ORIGIN`, указывающим на WSL IP dashboard:
-   ```bash
-   cd server
-   CORS_ORIGIN=http://172.31.199.36:5173 pnpm run dev
-   ```
-
-2. **Dashboard**: в `.env.local` используйте WSL IP вместо `localhost`:
-   ```
-   VITE_API_URL=http://172.31.199.36:3000
-   VITE_WS_URL=ws://172.31.199.36:3000
-   VITE_INGEST_TOKEN=change-me-in-production
-   ```
-
-3. **Dashboard**: запустите с `--host`, чтобы Vite был доступен извне WSL:
-   ```bash
-   cd dashboard
-   npx vite dev --host 0.0.0.0
-   ```
-
-4. **Браузер Windows**: откройте `http://172.31.199.36:5173/`
-
 ### Проверка работоспособности
 
 ```bash
@@ -176,191 +144,64 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/metrics/linux-
 
 ## Production
 
-### Server (production build)
+### Автоматический деплой
 
 ```bash
-cd server
-pnpm run build
-NODE_ENV=production pnpm start
+# Полная production установка (сборка + деплой + systemd + nginx)
+sudo ./setup.sh --prod --install-systemd --install-nginx
 ```
 
-Рекомендуется запускать через systemd или Docker.
+Одна команда:
+1. Генерирует случайный `INGEST_TOKEN`
+2. Создаёт все `.env` / `.env.local` файлы с production настройками
+3. Устанавливает зависимости и собирает все три компонента
+4. Копирует собранные файлы в `/opt/sysbeat/`
+5. Устанавливает systemd-сервисы (`sysbeat-server`, `sysbeat-collector`) и запускает их
+6. Устанавливает nginx, настраивает его для раздачи dashboard и проксирования API/WebSocket
 
-### systemd service для Server
+После установки откройте `http://<server-ip>` в браузере.
 
-Создайте `/etc/systemd/system/sysbeat-server.service`:
+Флаги:
+| Флаг | Назначение |
+|------|------------|
+| `--prod` | Собрать все компоненты, задеплоить в `/opt/sysbeat` |
+| `--install-systemd` | Установить systemd-сервисы (подразумевает `--prod`) |
+| `--install-nginx` | Установить и настроить nginx |
+| `--device-id <id>` | ID устройства для collector (по умолчанию: hostname) |
 
-```ini
-[Unit]
-Description=sysbeat server
-After=network.target
+### Как это работает
 
-[Service]
-Type=simple
-User=sysbeat
-WorkingDirectory=/opt/sysbeat/server
-ExecStart=/usr/bin/node /opt/sysbeat/server/dist/server.js
-Restart=always
-RestartSec=5
-Environment="NODE_ENV=production"
-Environment="PORT=3000"
-Environment="DB_PATH=/var/lib/sysbeat/sysbeat.db"
-Environment="INGEST_TOKEN=your-secret-token-here"
-Environment="CORS_ORIGIN=https://sysbeat.example.com"
-
-[Install]
-WantedBy=multi-user.target
 ```
+браузер (http://server-ip:80)
+       │
+       ▼
+      nginx (port 80)
+       │        │
+       │        └── /api/*, /devices, /health, /ingest, /stream → proxy → server:3000
+       │
+       └── /* → статические файлы /opt/sysbeat/dashboard/dist/
+```
+
+В production dashboard использует пустые `VITE_API_URL` и `VITE_WS_URL` (same-origin). Все запросы идут через nginx, который проксирует API/WebSocket на сервер на порту 3000.
+
+### Ручная установка (без setup.sh)
+
+Соберите каждый компонент:
 
 ```bash
-sudo mkdir -p /var/lib/sysbeat
-sudo chown sysbeat:sysbeat /var/lib/sysbeat
-sudo systemctl daemon-reload
-sudo systemctl enable sysbeat-server
-sudo systemctl start sysbeat-server
-sudo journalctl -u sysbeat-server -f
+cd server && pnpm run build
+cd ../collector && pnpm run build
+cd ../dashboard && pnpm run build
 ```
 
-### Collector (production build)
+Скопируйте в `/opt/sysbeat/` и настройте nginx/systemd вручную. См. `nginx/sysbeat.conf` для эталонной конфигурации nginx.
 
-```bash
-cd collector
-pnpm run build
-```
+### Конфигурация nginx
 
-systemd service уже описан в `collector/README.md`. Кратко:
-
-```ini
-[Unit]
-Description=sysbeat metrics collector
-After=network.target
-
-[Service]
-Type=simple
-User=sysbeat
-WorkingDirectory=/opt/sysbeat/collector
-ExecStart=/usr/bin/node /opt/sysbeat/collector/dist/index.js
-Restart=always
-RestartSec=5
-Environment="NODE_ENV=production"
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Dashboard (production build + static hosting)
-
-```bash
-cd dashboard
-pnpm run build
-```
-
-Результат в `dist/`. Раздайте через nginx, Caddy или любой static file server.
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name sysbeat.example.com;
-
-    root /opt/sysbeat/dashboard/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Proxy API и WebSocket к серверу
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
-
-> **Важно**: в production dashboard должен обращаться к серверу по тому же origin (чтобы избежать CORS-проблем), либо сервер должен иметь `CORS_ORIGIN` с правильным доменом.
-
----
-
-## Reverse Proxy
-
-### nginx (рекомендуется)
-
-```nginx
-upstream sysbeat {
-    server 127.0.0.1:3000;
-}
-
-server {
-    listen 80;
-    server_name sysbeat.example.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name sysbeat.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/sysbeat.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/sysbeat.example.com/privkey.pem;
-
-    # Static dashboard files
-    location / {
-        root /opt/sysbeat/dashboard/dist;
-        try_files $uri $uri/ /index.html;
-        expires 1h;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # API + WebSocket proxy
-    location /api/ {
-        proxy_pass http://sysbeat;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location /devices {
-        proxy_pass http://sysbeat;
-        proxy_http_version 1.1;
-    }
-
-    location /health {
-        proxy_pass http://sysbeat;
-        proxy_http_version 1.1;
-    }
-
-    location /ingest {
-        proxy_pass http://sysbeat;
-        proxy_http_version 1.1;
-    }
-
-    location /stream {
-        proxy_pass http://sysbeat;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 86400;
-    }
-}
-```
-
-### Caddy (простая альтернатива)
-
-```caddy
-sysbeat.example.com {
-    root * /opt/sysbeat/dashboard/dist
-    file_server
-    try_files {path} /index.html
-
-    reverse_proxy /api/* localhost:3000
-    reverse_proxy /devices localhost:3000
-    reverse_proxy /health localhost:3000
-    reverse_proxy /ingest localhost:3000
-    reverse_proxy /stream localhost:3000
-}
-```
+Скрипт установки использует `nginx/sysbeat.conf`. Ключевые моменты:
+- Статические файлы dashboard отдаются из `/opt/sysbeat/dashboard/dist/`
+- API-маршруты (`/api/`, `/devices`, `/health`, `/ingest`) проксируются на `127.0.0.1:3000`
+- WebSocket (`/stream`) проксируется с заголовками `Upgrade` и `Connection: upgrade`
 
 ---
 
@@ -389,8 +230,8 @@ sysbeat.example.com {
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VITE_API_URL` | **yes** | — | REST API base URL |
-| `VITE_WS_URL` | **yes** | — | WebSocket base URL |
+| `VITE_API_URL` | — | `""` | REST API base URL (пусто = same-origin, для режима nginx proxy) |
+| `VITE_WS_URL` | — | `""` | WebSocket base URL (пусто = same-origin) |
 | `VITE_INGEST_TOKEN` | **yes** | — | Bearer token (должен совпадать с серверным `INGEST_TOKEN`) |
 
 ---
@@ -405,24 +246,11 @@ sysbeat.example.com {
 
 ### Dashboard не подключается к WebSocket
 
-1. Проверьте `VITE_WS_URL` — должен быть `ws://localhost:3000` (или `wss://` для HTTPS).
+1. Проверьте `VITE_WS_URL` — в development должен быть `ws://localhost:3000`, в production пустой (same-origin, если за nginx).
 2. Проверьте `VITE_INGEST_TOKEN` — должен совпадать с `INGEST_TOKEN` сервера. Токен передаётся как query-параметр `?token=...` для WebSocket-аутентификации.
 3. Проверьте CORS: сервер должен разрешать origin dashboard (`CORS_ORIGIN=http://localhost:5173`).
 4. Проверьте DevTools → Network → WS — найдите URL соединения с параметром token.
 5. Если за nginx: убедитесь, что `/stream` проксирует WebSocket (`Upgrade`, `Connection: upgrade`).
-
-### CORS ошибки в WSL + Windows браузер
-
-**Причина**: `localhost` в Windows и WSL — разные сетевые интерфейсы. Браузер шлёт `Origin: http://localhost:5173`, а сервер в WSL видит его как `127.0.0.1` и CORS не совпадает.
-
-**Решение**:
-1. Используйте WSL IP вместо `localhost` во всех конфигах:
-   - `CORS_ORIGIN=http://172.31.199.36:5173` (server `.env`)
-   - `VITE_API_URL=http://172.31.199.36:3000` (dashboard `.env.local`)
-   - `VITE_WS_URL=ws://172.31.199.36:3000` (dashboard `.env.local`)
-   - `VITE_INGEST_TOKEN=change-me-in-production` (dashboard `.env.local`)
-2. Запускайте dashboard с `--host 0.0.0.0`, чтобы он слушал не только `127.0.0.1`.
-3. В Windows-браузере открывайте `http://<WSL_IP>:5173/`.
 
 ### "Database is locked" или "SQLITE_BUSY"
 
@@ -431,7 +259,7 @@ sysbeat.example.com {
 
 ### Collector падает с ошибкой парсинга
 
-- Убедитесь, что запускаете на Linux (или WSL). `/proc` доступен только на Linux.
+- Убедитесь, что запускаете на Linux . `/proc` доступен только на Linux.
 - Проверьте права на чтение `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`.
 
 ### Нативный модуль better-sqlite3 не найден
