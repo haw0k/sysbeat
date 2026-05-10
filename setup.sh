@@ -113,13 +113,15 @@ for DIR in server collector dashboard; do
   log_info "  ${DIR}..."
   (
     cd "$DIR"
+    # pnpm v10.12+ may exit non-zero when builds are ignored;
+    # don't let set -e kill the script before we approve and rebuild.
+    set +e
     pnpm install --no-frozen-lockfile
-    # pnpm v10.12+ ignores build scripts by default.
-    # approve-builds marks them as allowed, rebuild runs the actual build.
     if [ "$DIR" = "server" ]; then
-      pnpm approve-builds better-sqlite3 esbuild 2>&1 || true
-      pnpm rebuild better-sqlite3 esbuild 2>&1 || true
+      pnpm approve-builds better-sqlite3 esbuild
+      pnpm rebuild better-sqlite3 esbuild
     fi
+    set -e
   )
 done
 log_ok "Dependencies installed"
