@@ -99,9 +99,17 @@ log_ok "collector/.env created (device: ${DEVICE_ID})"
 # --- Dashboard ---
 log_info "Configuring dashboard..."
 
+if $PROD; then
+  DASHBOARD_API_URL=""
+  DASHBOARD_WS_URL=""
+else
+  DASHBOARD_API_URL="http://localhost:3000"
+  DASHBOARD_WS_URL="ws://localhost:3000"
+fi
+
 cat > dashboard/.env.local <<EOF
-VITE_API_URL=http://localhost:3000
-VITE_WS_URL=ws://localhost:3000
+VITE_API_URL=${DASHBOARD_API_URL}
+VITE_WS_URL=${DASHBOARD_WS_URL}
 VITE_INGEST_TOKEN=${INGEST_TOKEN}
 EOF
 log_ok "dashboard/.env.local created"

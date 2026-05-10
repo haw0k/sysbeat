@@ -34,6 +34,14 @@ async function request<T>(url: string): Promise<T> {
 }
 
 export function buildApiUrl(path: string, query?: Record<string, string>): string {
+  if (!config.apiUrl) {
+    if (!query) return path;
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params.set(key, value);
+    }
+    return `${path}?${params.toString()}`;
+  }
   const url = new URL(path, config.apiUrl);
   if (query) {
     for (const [key, value] of Object.entries(query)) {

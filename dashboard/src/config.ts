@@ -4,7 +4,7 @@ interface IConfig {
   ingestToken: string;
 }
 
-function getEnv(key: string): string {
+function requireEnv(key: string): string {
   const value = import.meta.env[key];
   if (typeof value !== 'string' || value.trim() === '') {
     throw new Error(`Environment variable ${key} is required`);
@@ -12,20 +12,22 @@ function getEnv(key: string): string {
   return value;
 }
 
-function validateUrl(url: string): string {
+function optionalUrl(key: string): string {
+  const value = (import.meta.env[key] as string | undefined) ?? '';
+  if (value === '') return value;
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(value);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
-      throw new Error(`Unsupported protocol: ${parsed.protocol}`);
+      throw new Error(`Unsupported protocol in ${key}: ${parsed.protocol}`);
     }
-    return url;
+    return value;
   } catch {
-    throw new Error(`${url} is not a valid URL`);
+    throw new Error(`${key}=${value} is not a valid URL`);
   }
 }
 
 export const config: IConfig = {
-  apiUrl: validateUrl(getEnv('VITE_API_URL')),
-  wsUrl: validateUrl(getEnv('VITE_WS_URL')),
-  ingestToken: getEnv('VITE_INGEST_TOKEN'),
+  apiUrl: optionalUrl('VITE_API_URL'),
+  wsUrl: optionalUrl('VITE_WS_URL'),
+  ingestToken: requireEnv('VITE_INGEST_TOKEN'),
 };
