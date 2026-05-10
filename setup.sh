@@ -111,7 +111,15 @@ log_info "Installing dependencies..."
 
 for DIR in server collector dashboard; do
   log_info "  ${DIR}..."
-  (cd "$DIR" && pnpm install --frozen-lockfile 2>/dev/null || pnpm install)
+  (
+    cd "$DIR"
+    # --no-frozen-lockfile: project package.json may change between releases
+    pnpm install --no-frozen-lockfile
+    # pnpm v10.12+ requires explicit build approval; package.json
+    # already declares onlyBuiltDependencies, but approve-builds
+    # covers any version mismatch
+    pnpm approve-builds better-sqlite3 esbuild 2>/dev/null || true
+  )
 done
 log_ok "Dependencies installed"
 
