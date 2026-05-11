@@ -11,12 +11,12 @@ Imagine you have a smart home. In every room there is a temperature sensor. **Co
 ### Three participants in the system
 
 ```
-+---------------+     HTTP POST      +---------------+     WebSocket      +---------------+
-|   Collector   | -------------------> |    Server     | -------------------> |   Dashboard   |
-|  (on Linux    |  "here are my      |  (receives,   |  "new data!"       |  (browser,    |
-|   device)     |   metrics"         |   stores,      |                    |   sees chart) |
-+---------------+                    |   broadcasts)  |                    +---------------+
-                                     +---------------+
+┌───────────────┐      HTTP POST       ┌───────────────┐      WebSocket       ┌───────────────┐
+│   Collector   │ ──────────────────▶  │    Server     │ ──────────────────▶  │   Dashboard   │
+│  (on Linux    │    here are my       │  (receives,   │    new data!         │  (browser,    │
+│   device)     │    metrics           │   stores,      │                      │   sees chart) │
+└───────────────┘                      │   broadcasts)  │                      └───────────────┘
+                                       └───────────────┘
 ```
 
 The Collector **does not use WebSocket directly** — it sends regular HTTP requests. But it is the **source of data** for the entire system, including the WebSocket broadcast to the dashboard.
@@ -286,11 +286,11 @@ If the server does not respond within 5 seconds, the connection is terminated. W
 ### 5.1. Architecture
 
 ```
-+------------+     +------------+     +------------+     +------------+
-| setInterval| --> | collect()  | --> | parse /proc| --> | send HTTP  |
-|  (every    |     |            |     |            |     |            |
-|   second)  |     |            |     |            |     |            |
-+------------+     +------------+     +------------+     +------------+
+┌────────────┐      ┌────────────┐      ┌────────────┐      ┌────────────┐
+│ setInterval│ ───▶ │ collect()  │ ───▶ │ parse /proc│ ───▶ │ send HTTP  │
+│  (every    │      │            │      │            │      │            │
+│   second)  │      │            │      │            │      │            │
+└────────────┘      └────────────┘      └────────────┘      └────────────┘
 ```
 
 ### 5.2. Overlap protection

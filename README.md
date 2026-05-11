@@ -13,11 +13,11 @@ sysbeat consists of three components that work together:
 | **Dashboard** | `dashboard/` | React SPA that visualizes live metrics in real-time |
 
 ```
-+-------------+      HTTP POST      +------------+     WebSocket      +------------+
-| Collector   | ------------------> |   Server   | -----------------> |  Dashboard |
-| (Linux /proc|   "my metrics"      | (Fastify + |   "live updates!"  |  (Browser) |
-|  parser)    |                     |  SQLite)   |                    |            |
-+------------+                      +------------+                    +------------+
+┌──────────────────┐      HTTP POST       ┌──────────────┐      WebSocket       ┌──────────────────┐
+│    Collector     │ ──────────────────▶  │    Server    │ ──────────────────▶  │    Dashboard     │
+│  Linux /proc     │      /ingest         │  Fastify +   │      /stream         │  React SPA       │
+│  parser          │                      │  SQLite      │                      │  + Chart.js      │
+└──────────────────┘                      └──────────────┘                      └──────────────────┘
 ```
 
 ## Quick Start (Development)
