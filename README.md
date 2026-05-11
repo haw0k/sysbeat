@@ -14,7 +14,7 @@ sysbeat consists of three components that work together:
 
 ```
 ┌──────────────────┐      HTTP POST       ┌──────────────┐      WebSocket       ┌──────────────────┐
-│    Collector     │ ──────────────────▶  │    Server    │ ──────────────────▶  │    Dashboard     │
+│    Collector     │ ──────────────────>  │    Server    │ ──────────────────>  │    Dashboard     │
 │  Linux /proc     │      /ingest         │  Fastify +   │      /stream         │  React SPA       │
 │  parser          │                      │  SQLite      │                      │  + Chart.js      │
 └──────────────────┘                      └──────────────┘                      └──────────────────┘

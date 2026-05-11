@@ -8,12 +8,12 @@ System architecture: components, data flows, storage, APIs, and communication pr
 
 ```
 ┌──────────────────┐      HTTP POST       ┌──────────────┐      WebSocket       ┌──────────────────┐
-│    Collector     │ ──────────────────▶  │    Server    │ ──────────────────▶  │    Dashboard     │
+│    Collector     │ ──────────────────>  │    Server    │ ──────────────────>  │    Dashboard     │
 │    (Linux)       │    metrics payload   │   (Fastify)  │    live updates      │    (Browser)     │
 └──────────────────┘                      └──────┬───────┘                      └──────────────────┘
                                                  │
                                                  │ SQLite
-                                                 ▼
+                                                 v
                                           ┌──────────────┐
                                           │    SQLite    │
                                           │    (WAL)     │

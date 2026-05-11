@@ -182,7 +182,7 @@ Individual flags:
 ```
 browser (http://server-ip:80)
        │
-       ▼
+       v
       nginx (port 80)
        │        │
        │        └── /api/*, /devices, /health, /ingest, /stream → proxy → server:3000

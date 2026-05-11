@@ -16,15 +16,15 @@ Regular HTTP works on a "request-response" basis: the client asks, the server an
 ```
 Client                              Server
   │                                   │
-  │─── HTTP GET, Upgrade: websocket ─▶│  "I want to switch to WS"
+  │─── HTTP GET, Upgrade: websocket ─>│  "I want to switch to WS"
   │                                   │
-  │◀─── HTTP 101 Switching ───────────│  "ok, switching"
+  │<─── HTTP 101 Switching ───────────│  "ok, switching"
   │                                   │
   │══════════ WebSocket ══════════════│  <-- persistent connection
   │                                   │
-  │◀─── server sends data ────────────│
-  │─── client sends data ────────────▶│
-  │◀─── server sends data ────────────│
+  │<─── server sends data ────────────│
+  │─── client sends data ────────────>│
+  │<─── server sends data ────────────│
 ```
 
 Important: the handshake starts as a regular HTTP request, but the server responds with code `101` and from that point the protocol switches to WebSocket.
@@ -56,22 +56,22 @@ WebSocket solves all of this: the server **itself** sends data when it appears.
 
 ```
 ┌───────────────┐
-│  Dashboard 1  │◀───┐
+│  Dashboard 1  │<───┐
 └───────────────┘    │
                      │
 ┌───────────────┐    │     ┌──────────────────┐
-│  Dashboard 2  │◀───┼────▶│   Set<WebSocket> │  (all connected clients)
+│  Dashboard 2  │<───┼────>│   Set<WebSocket> │  (all connected clients)
 └───────────────┘    │     └──────────────────┘
                      │              │
-┌───────────────┐    │              ▼
-│  Dashboard 3  │◀───┘     ┌──────────────────┐
+┌───────────────┐    │              v
+│  Dashboard 3  │<───┘     ┌──────────────────┐
 └───────────────┘          │  Server Fastify  │
                            │                  │
                            │  ┌─────────────┐ │
                            │  │  SQLite DB  │ │
                            │  └─────────────┘ │
                            └──────────────────┘
-                                    ▲
+                                    ^
                                     │
                            ┌───────────────┐
                            │   Collector   │

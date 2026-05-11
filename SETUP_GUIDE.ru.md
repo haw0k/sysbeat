@@ -182,7 +182,7 @@ sudo ./setup.sh --prod --install-systemd --install-nginx
 ```
 браузер (http://server-ip:80)
        │
-       ▼
+       v
       nginx (port 80)
        │        │
        │        └── /api/*, /devices, /health, /ingest, /stream → proxy → server:3000
