@@ -14,8 +14,8 @@ Imagine you have a smart home. In every room there is a temperature sensor. **Co
 ┌───────────────┐      HTTP POST       ┌───────────────┐      WebSocket       ┌───────────────┐
 │   Collector   │ ──────────────────▶  │    Server     │ ──────────────────▶  │   Dashboard   │
 │  (on Linux    │    here are my       │  (receives,   │    new data!         │  (browser,    │
-│   device)     │    metrics           │   stores,      │                      │   sees chart) │
-└───────────────┘                      │   broadcasts)  │                      └───────────────┘
+│   device)     │    metrics           │   stores,     │                      │   sees chart) │
+└───────────────┘                      │   broadcasts) │                      └───────────────┘
                                        └───────────────┘
 ```
 
